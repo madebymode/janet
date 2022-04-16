@@ -11,7 +11,7 @@ import (
 	"github.com/troyxmccall/janet/ui/webui"
 
 	"github.com/aybabtme/log"
-	"github.com/nlopes/slack"
+	"github.com/slack-go/slack"
 	"github.com/troyxmccall/envy"
 )
 
@@ -19,6 +19,7 @@ import (
 var (
 	token            = flag.String("token", "", "slack RTM token for Good Janet")
 	badJanetToken    = flag.String("badJanetToken", "", "slack RTM token for Bad Janet")
+	oauthToken       = flag.String("oauthToken", "", "slack Web token for BANGBANG behavior")
 	dbpath           = flag.String("db", "./db.sqlite3", "path to sqlite database")
 	maxpoints        = flag.Int("maxpoints", 5, "the maximum amount of points that users can give/take at once")
 	leaderboardlimit = flag.Int("leaderboardlimit", 10, "the default amount of users to list in the leaderboard")
@@ -117,6 +118,10 @@ func main() {
 		ll.Fatal("please pass a slack RTM token for badJanet (see `janet -h` for help)")
 	}
 
+	if *oauthToken == "" {
+		ll.Fatal("please pass a oauth token for web access")
+	}
+
 	//TODO: figure out a way to fix this
 	//our current logging library does not implement
 	//log.Logger
@@ -153,6 +158,7 @@ func main() {
 	bot := janet.New(&janet.Config{
 		Slack:            &janet.SlackChatService{*SlackConnection},
 		BadJanetSlack:    &janet.SlackChatService{*badJanetSlackConnection},
+		SlackWebClient:   slack.New(*oauthToken),
 		UI:               ui,
 		Debug:            *debug,
 		MaxPoints:        *maxpoints,

@@ -14,7 +14,7 @@ import (
 
 	"github.com/aybabtme/log"
 	"github.com/dustin/go-humanize"
-	"github.com/nlopes/slack"
+	"github.com/slack-go/slack"
 )
 
 var (
@@ -72,7 +72,7 @@ type ChatService interface {
 	PostEphemeral(channelID, userID string, options ...slack.MsgOption) (string, error)
 }
 
-// SlackChatService is an implementation of ChatService using github.com/nlopes/slack.
+// SlackChatService is an implementation of ChatService using github.com/slack-go/slack.
 type SlackChatService struct {
 	slack.RTM
 }
@@ -95,6 +95,7 @@ type ReactjiConfig struct {
 type Config struct {
 	Slack                       ChatService
 	BadJanetSlack               ChatService
+	SlackWebClient              *slack.Client
 	Debug, Motivate, SelfPoints bool
 	MaxPoints, LeaderboardLimit int
 	Log                         *log.Log
@@ -300,6 +301,20 @@ func (b *Bot) handleError(err error, message *slack.MessageEvent) bool {
 	return true
 }
 
+func (b *Bot) bangBangHandleError(err error, ev *slack.ReactionAddedEvent) bool {
+	if err == nil {
+		return false
+	}
+
+	b.Config.Log.Err(err).Error("error")
+	if ev != nil {
+		text := "i had trouble parsing the original message"
+		b.SendMessage(text, ev.Item.Channel, ev.Item.Timestamp, "")
+	}
+
+	return true
+}
+
 func (b *Bot) handleReactionAddedEvent(ev *slack.ReactionAddedEvent) {
 	if !b.Config.Reactji.Enabled {
 		return
@@ -316,11 +331,12 @@ func (b *Bot) handleReactionAddedEvent(ev *slack.ReactionAddedEvent) {
 		points = -3
 	case b.Config.Reactji.RepeatPoints.Contains(ev.Reaction):
 		b.handleRepeatPoints(ev)
+		return
 	default:
 		return
 	}
 
-	reason = fmt.Sprintf("added a :%s: reactji", ev.Reaction)
+	reason = fmt.Sprintf("added a :%s: emoji", ev.Reaction)
 	b.handleReactionEvent(ev, reason, points)
 }
 
@@ -342,7 +358,7 @@ func (b *Bot) handleReactionRemovedEvent(ev *slack.ReactionRemovedEvent) {
 		return
 	}
 
-	reason = fmt.Sprintf("removed a :%s: reactji", ev.Reaction)
+	reason = fmt.Sprintf("removed a :%s: emoji", ev.Reaction)
 	b.handleReactionEvent((*slack.ReactionAddedEvent)(ev), reason, points)
 }
 
@@ -350,6 +366,83 @@ func (b *Bot) handleRepeatPoints(ev *slack.ReactionAddedEvent) {
 	b.Config.Log.Info("GREPBANGBANG")
 	b.Config.Log.Info(ev.Item.Timestamp)
 
+	b.Config.Log.Info(ev.Item.Channel)
+
+	res, err := GetMessage(b.Config.SlackWebClient, ev.Item.Channel, ev.Item.Timestamp)
+
+	if err != nil || len(res.Messages) == 0 {
+		b.Config.Log.Error(err.Error())
+		b.SendMessage("bing bong, you gotta add @goodplace-judge for bangbang behavior bb", ev.Item.Channel, ev.Item.Timestamp, "badJanet")
+		return
+	}
+
+	textToParse := res.Messages[0].Text
+
+	re := regexp.MustCompile("(<@[A-Za-z0-9]+>(\\s)?([\\+]{2,})?([\\-]{2,})?)")
+	splits := re.FindAllString(textToParse, -1)
+
+	var goodJanetResponse strings.Builder
+	var badJanetResponse strings.Builder
+
+	if splits != nil {
+		for _, split := range splits {
+
+			splitText := split
+
+			switch {
+			case regexps.GivePoints.MatchString(splitText):
+				goodJanetResponse.WriteString(b.bangBangApplyPoints(ev, "", splitText))
+				if len(goodJanetResponse.String()) > 0 {
+					goodJanetResponse.WriteString("\n")
+				}
+			case regexps.TakePoints.MatchString(splitText):
+				whichJanet := "badJanet"
+				badJanetResponse.WriteString(b.bangBangApplyPoints(ev, whichJanet, splitText))
+				if len(badJanetResponse.String()) > 0 {
+					badJanetResponse.WriteString("\n")
+				}
+			}
+		}
+
+		from, err := b.getUserNameByID(ev.User)
+		if b.handleError(err, nil) {
+			return
+		}
+
+		//send combined messages as good janet
+		if len(goodJanetResponse.String()) > 0 {
+			reason := fmt.Sprintf(":%s: added a :%s: emoji \n", from, ev.Reaction)
+			goodJanetResponse.WriteString(reason)
+			b.SendMessage(goodJanetResponse.String(), ev.Item.Channel, ev.Item.Timestamp, "")
+		}
+
+		//send combined messages as bad janet
+		if len(badJanetResponse.String()) > 0 {
+			reason := fmt.Sprintf(":%s: added a :%s: emoji \n", from, ev.Reaction)
+			badJanetResponse.WriteString(reason)
+			b.SendMessage(badJanetResponse.String(), ev.Item.Channel, ev.Item.Timestamp, "badJanet")
+
+		}
+
+	}
+
+}
+
+func GetMessage(slackClient *slack.Client, channelId string, messageId string) (*slack.GetConversationHistoryResponse, error) {
+	return slackClient.GetConversationHistory(&slack.GetConversationHistoryParameters{
+		ChannelID: channelId,
+		Inclusive: true,
+		Latest:    messageId,
+		Limit:     1,
+	})
+}
+
+func GetPrecedingMessage(slackClient *slack.Client, channelId string, fromMessageId string) (*slack.GetConversationHistoryResponse, error) {
+	return slackClient.GetConversationHistory(&slack.GetConversationHistoryParameters{
+		ChannelID: channelId,
+		Latest:    fromMessageId,
+		Limit:     1,
+	})
 }
 
 // at this point there is no difference between ReactionAddedEvent and ReactionRemovedEvent
@@ -415,8 +508,10 @@ func (b *Bot) handleMessageEvent(ev *slack.MessageEvent) {
 		}
 	}
 
+	textToParse := ev.Text
+
 	re := regexp.MustCompile("(<@[A-Za-z0-9]+>(\\s)?([\\+]{2,})?([\\-]{2,})?)")
-	splits := re.FindAllString(ev.Text, -1)
+	splits := re.FindAllString(textToParse, -1)
 
 	var goodJanetResponse strings.Builder
 	var badJanetResponse strings.Builder
@@ -542,6 +637,72 @@ func (b *Bot) applyPoints(ev *slack.MessageEvent, whichJanet, splitText string) 
 
 	pointsMsg, err := b.getUserPointsMessage(to, reason, points)
 	if b.handleError(err, ev) {
+		return ""
+	}
+
+	return pointsMsg
+}
+
+func (b *Bot) bangBangApplyPoints(ev *slack.ReactionAddedEvent, whichJanet, splitText string) string {
+	b.Config.Log.Info(whichJanet)
+
+	match := regexps.GivePoints.FindStringSubmatch(splitText)
+	if len(match) == 0 {
+		match = regexps.TakePoints.FindStringSubmatch(splitText)
+	}
+	if len(match) == 0 {
+		return ""
+	}
+
+	// forgive me
+	if match[1] != "" {
+		// we matched the first alt expression
+		match = match[:4]
+	} else {
+		// we matched the second alt expression
+		match = append(match[:1], match[4:]...)
+	}
+
+	from, err := b.getUserNameByID(ev.User)
+	if b.bangBangHandleError(err, ev) {
+		return ""
+	}
+	to, err := b.parseUser(match[1])
+	if b.bangBangHandleError(err, ev) {
+		return ""
+	}
+	to = strings.ToLower(to)
+
+	if _, blacklisted := b.Config.UserBlacklist[to]; blacklisted {
+		b.Config.Log.KV("user", to).Info("user is blacklisted, ignoring karma command")
+		return ""
+	}
+
+	points := min(len(match[2])-1, b.Config.MaxPoints)
+	if match[2][0] == '-' {
+		points *= -1
+	}
+	reason := match[3]
+
+	if !b.Config.SelfPoints && from == to {
+		b.SendMessage("you are not allowed to modify your own points.", ev.Item.Channel, ev.Item.Timestamp, "badJanet")
+		return ""
+	}
+
+	record := &database.Points{
+		From:   from,
+		To:     to,
+		Points: points,
+		Reason: reason,
+	}
+
+	err = b.Config.DB.InsertPoints(record)
+	if b.bangBangHandleError(err, ev) {
+		return ""
+	}
+
+	pointsMsg, err := b.getUserPointsMessage(to, reason, points)
+	if b.bangBangHandleError(err, ev) {
 		return ""
 	}
 

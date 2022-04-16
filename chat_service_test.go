@@ -1,7 +1,7 @@
 package janet
 
 import (
-	"github.com/nlopes/slack"
+	"github.com/slack-go/slack"
 )
 
 type TestChatService struct {

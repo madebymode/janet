@@ -180,8 +180,8 @@ func TestHandleSlackEvent(t *testing.T) {
 		b, cs, db := newBot(&Config{
 			Reactji: &ReactjiConfig{
 				Enabled:  !tc.ReacjiDisabled,
-				Upvote:   upvote,
-				Downvote: downvote,
+				UpVote:   upvote,
+				DownVote: downvote,
 			},
 		})
 

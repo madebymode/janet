@@ -78,8 +78,8 @@ func main() {
 
 	reactjiConfig := &janet.ReactjiConfig{
 		Enabled:      *reactji,
-		Upvote:       upvotereactji,
-		Downvote:     downvotereactji,
+		UpVote:       upvotereactji,
+		DownVote:     downvotereactji,
 		RepeatPoints: repeatreactji,
 	}
 

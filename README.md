@@ -60,15 +60,15 @@ following messages are parsed correctly:
 
 1. clone the repo (find the latest version number
    in [the releases page](https://github.com/troyxmccall/janet/releases)):
-  1. `git clone -b v1.5.2 https://github.com/troyxmccall/janet.git`
-  2. `cd janet`
+1. `git clone -b v1.5.2 https://github.com/troyxmccall/janet.git`
+2. `cd janet`
 2. install dependencies
-  1. run `go mod download`
+1. run `go mod download`
 3. run `go build` in `/cmd/janet` and `/cmd/janetctl`
-  2. `cd cmd/janet`
-  3. `go build`
-  4. `cd ../janetctl`
-  5. `go build`
+2. `cd cmd/janet`
+3. `go build`
+4. `cd ../janetctl`
+5. `go build`
 
 ## Usage
 

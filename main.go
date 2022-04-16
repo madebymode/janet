@@ -330,7 +330,7 @@ func (b *Bot) handleReactionAddedEvent(ev *slack.ReactionAddedEvent) {
 	case b.Config.Reactji.DownVote.Contains(ev.Reaction):
 		points = -3
 	case b.Config.Reactji.RepeatPoints.Contains(ev.Reaction):
-		b.handleRepeatPoints(ev)
+		b.handleBangBangPoints(ev, true)
 		return
 	default:
 		return
@@ -354,6 +354,9 @@ func (b *Bot) handleReactionRemovedEvent(ev *slack.ReactionRemovedEvent) {
 		points = -3
 	case b.Config.Reactji.DownVote.Contains(ev.Reaction):
 		points = +3
+	case b.Config.Reactji.RepeatPoints.Contains(ev.Reaction):
+		b.handleBangBangPoints((*slack.ReactionAddedEvent)(ev), false)
+		return
 	default:
 		return
 	}
@@ -362,11 +365,7 @@ func (b *Bot) handleReactionRemovedEvent(ev *slack.ReactionRemovedEvent) {
 	b.handleReactionEvent((*slack.ReactionAddedEvent)(ev), reason, points)
 }
 
-func (b *Bot) handleRepeatPoints(ev *slack.ReactionAddedEvent) {
-	b.Config.Log.Info("GREPBANGBANG")
-	b.Config.Log.Info(ev.Item.Timestamp)
-
-	b.Config.Log.Info(ev.Item.Channel)
+func (b *Bot) handleBangBangPoints(ev *slack.ReactionAddedEvent, addedReaction bool) {
 
 	res, err := GetMessage(b.Config.SlackWebClient, ev.Item.Channel, ev.Item.Timestamp)
 
@@ -391,6 +390,18 @@ func (b *Bot) handleRepeatPoints(ev *slack.ReactionAddedEvent) {
 
 			switch {
 			case regexps.GivePoints.MatchString(splitText):
+				if addedReaction == false {
+					splitText = strings.Replace(splitText, "+", "-", -1)
+				}
+			case regexps.TakePoints.MatchString(splitText):
+				if addedReaction == false {
+					splitText = strings.Replace(splitText, "-", "+", -1)
+				}
+
+			}
+
+			switch {
+			case regexps.GivePoints.MatchString(splitText):
 				goodJanetResponse.WriteString(b.bangBangApplyPoints(ev, "", splitText))
 				if len(goodJanetResponse.String()) > 0 {
 					goodJanetResponse.WriteString("\n")
@@ -409,16 +420,22 @@ func (b *Bot) handleRepeatPoints(ev *slack.ReactionAddedEvent) {
 			return
 		}
 
+		reason := "added"
+
+		if addedReaction == false {
+			reason = "removed"
+		}
+
 		//send combined messages as good janet
 		if len(goodJanetResponse.String()) > 0 {
-			reason := fmt.Sprintf("bc %s added a :%s: emoji \n", from, ev.Reaction)
+			reason := fmt.Sprintf("bc %s %s a :%s: emoji \n", from, reason, ev.Reaction)
 			goodJanetResponse.WriteString(reason)
 			b.SendMessage(goodJanetResponse.String(), ev.Item.Channel, ev.Item.Timestamp, "")
 		}
 
 		//send combined messages as bad janet
 		if len(badJanetResponse.String()) > 0 {
-			reason := fmt.Sprintf("bc %s added a :%s: emoji \n", from, ev.Reaction)
+			reason := fmt.Sprintf("bc %s %s a :%s: emoji \n", from, reason, ev.Reaction)
 			badJanetResponse.WriteString(reason)
 			b.SendMessage(badJanetResponse.String(), ev.Item.Channel, ev.Item.Timestamp, "badJanet")
 

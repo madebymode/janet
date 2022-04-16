@@ -20,7 +20,7 @@ var (
 	token            = flag.String("token", "", "slack RTM token for Good Janet")
 	badJanetToken    = flag.String("badJanetToken", "", "slack RTM token for Bad Janet")
 	dbpath           = flag.String("db", "./db.sqlite3", "path to sqlite database")
-	maxpoints        = flag.Int("maxpoints", 10, "the maximum amount of points that users can give/take at once")
+	maxpoints        = flag.Int("maxpoints", 5, "the maximum amount of points that users can give/take at once")
 	leaderboardlimit = flag.Int("leaderboardlimit", 10, "the default amount of users to list in the leaderboard")
 	debug            = flag.Bool("debug", false, "set debug mode")
 	webuitotp        = flag.String("webui.totp", "", "totp key")
@@ -32,6 +32,7 @@ var (
 	reactji          = flag.Bool("reactji", true, "use reactji as karma operations")
 	upvotereactji    = make(janet.StringList, 0)
 	downvotereactji  = make(janet.StringList, 0)
+	repeatreactji    = make(janet.StringList, 0)
 	aliases          = make(janet.StringList, 0)
 	selfkarma        = flag.Bool("selfkarma", false, "allow users to add/remove karma to themselves")
 	replytype        = flag.String("replytype", "thread", "how to reply to commands (message, thread)")
@@ -48,6 +49,7 @@ func main() {
 	flag.Var(&aliases, "alias", "alias different users to one user")
 	flag.Var(&upvotereactji, "reactji.upvote", "a list of reactjis to use for upvotes")
 	flag.Var(&downvotereactji, "reactji.downvote", "a list of reactjis to use for downvotes")
+	flag.Var(&repeatreactji, "reactji.repeat", "a list of reactjis to use for repeating points")
 
 	envy.Parse("KB")
 	flag.Parse()
@@ -69,10 +71,16 @@ func main() {
 		downvotereactji.Set("-1")
 		downvotereactji.Set("thumbsdown")
 	}
+
+	if len(repeatreactji) == 0 {
+		repeatreactji.Set("bangbang")
+	}
+
 	reactjiConfig := &janet.ReactjiConfig{
-		Enabled:  *reactji,
-		Upvote:   upvotereactji,
-		Downvote: downvotereactji,
+		Enabled:      *reactji,
+		Upvote:       upvotereactji,
+		Downvote:     downvotereactji,
+		RepeatPoints: repeatreactji,
 	}
 
 	// format aliases

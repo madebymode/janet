@@ -411,14 +411,14 @@ func (b *Bot) handleRepeatPoints(ev *slack.ReactionAddedEvent) {
 
 		//send combined messages as good janet
 		if len(goodJanetResponse.String()) > 0 {
-			reason := fmt.Sprintf(":%s: added a :%s: emoji \n", from, ev.Reaction)
+			reason := fmt.Sprintf("bc %s added a :%s: emoji \n", from, ev.Reaction)
 			goodJanetResponse.WriteString(reason)
 			b.SendMessage(goodJanetResponse.String(), ev.Item.Channel, ev.Item.Timestamp, "")
 		}
 
 		//send combined messages as bad janet
 		if len(badJanetResponse.String()) > 0 {
-			reason := fmt.Sprintf(":%s: added a :%s: emoji \n", from, ev.Reaction)
+			reason := fmt.Sprintf("bc %s added a :%s: emoji \n", from, ev.Reaction)
 			badJanetResponse.WriteString(reason)
 			b.SendMessage(badJanetResponse.String(), ev.Item.Channel, ev.Item.Timestamp, "badJanet")
 

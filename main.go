@@ -134,7 +134,7 @@ func (b *Bot) Listen() {
 	wg.Wait()
 }
 
-// Listen starts listening for Slack messages and calls the
+// GoodJanetListen Listen starts listening for Slack messages and calls the
 // appropriate handlers.
 func (b *Bot) GoodJanetListen(wg sync.WaitGroup) {
 
@@ -218,7 +218,7 @@ func (b *Bot) SendReply(reply string, message *slack.MessageEvent, whichJanet st
 	case "ephemeral":
 		b.SendReplyEphemeral(reply, message)
 	default:
-		b.SendMessage(reply, message.Channel, b.getReplyThread(message), "")
+		b.SendMessage(reply, message.Channel, b.getReplyThread(message), whichJanet)
 	}
 }
 
@@ -404,7 +404,9 @@ func (b *Bot) handleMessageEvent(ev *slack.MessageEvent) {
 
 	re := regexp.MustCompile("(<@[A-Za-z0-9]+>(\\s)?([\\+]{2,})?([\\-]{2,})?)")
 	splits := re.FindAllString(ev.Text, -1)
-	
+
+	var goodJanetResponse strings.Builder
+	var badJanetResponse strings.Builder
 
 	if splits != nil {
 		for _, split := range splits {
@@ -413,12 +415,17 @@ func (b *Bot) handleMessageEvent(ev *slack.MessageEvent) {
 
 			switch {
 			case regexps.GivePoints.MatchString(splitText):
-				b.applyPoints(ev, "", splitText)
+				goodJanetResponse.WriteString(b.applyPoints(ev, "", splitText))
+				if len(goodJanetResponse.String()) > 0 {
+					goodJanetResponse.WriteString("\n")
+				}
 
 			case regexps.TakePoints.MatchString(splitText):
 				whichJanet := "badJanet"
-				b.applyPoints(ev, whichJanet, splitText)
-
+				badJanetResponse.WriteString(b.applyPoints(ev, whichJanet, splitText))
+				if len(badJanetResponse.String()) > 0 {
+					badJanetResponse.WriteString("\n")
+				}
 			case regexps.Throwback.MatchString(ev.Text):
 				b.getThrowback(ev)
 
@@ -426,6 +433,16 @@ func (b *Bot) handleMessageEvent(ev *slack.MessageEvent) {
 				b.queryPoints(ev)
 			}
 		}
+		//send combined messages as good janet
+		if len(goodJanetResponse.String()) > 0 {
+			b.SendReply(goodJanetResponse.String(), ev, "")
+		}
+
+		//send combined messages as bad janet
+		if len(badJanetResponse.String()) > 0 {
+			b.SendReply(badJanetResponse.String(), ev, "badJanet")
+		}
+
 	} else {
 
 		switch {
@@ -452,7 +469,7 @@ func (b *Bot) printURL(ev *slack.MessageEvent) {
 	b.SendReply(url, ev, "")
 }
 
-func (b *Bot) applyPoints(ev *slack.MessageEvent, whichJanet string, splitText string) {
+func (b *Bot) applyPoints(ev *slack.MessageEvent, whichJanet, splitText string) string {
 	b.Config.Log.Info(whichJanet)
 
 	match := regexps.GivePoints.FindStringSubmatch(splitText)
@@ -460,7 +477,7 @@ func (b *Bot) applyPoints(ev *slack.MessageEvent, whichJanet string, splitText s
 		match = regexps.TakePoints.FindStringSubmatch(splitText)
 	}
 	if len(match) == 0 {
-		return
+		return ""
 	}
 
 	// forgive me
@@ -474,17 +491,17 @@ func (b *Bot) applyPoints(ev *slack.MessageEvent, whichJanet string, splitText s
 
 	from, err := b.getUserNameByID(ev.User)
 	if b.handleError(err, ev) {
-		return
+		return ""
 	}
 	to, err := b.parseUser(match[1])
 	if b.handleError(err, ev) {
-		return
+		return ""
 	}
 	to = strings.ToLower(to)
 
 	if _, blacklisted := b.Config.UserBlacklist[to]; blacklisted {
 		b.Config.Log.KV("user", to).Info("user is blacklisted, ignoring karma command")
-		return
+		return ""
 	}
 
 	points := min(len(match[2])-1, b.Config.MaxPoints)
@@ -494,8 +511,8 @@ func (b *Bot) applyPoints(ev *slack.MessageEvent, whichJanet string, splitText s
 	reason := match[3]
 
 	if !b.Config.SelfPoints && from == to {
-		b.SendReply("Sorry, you are not allowed to do that.", ev, "badJanet")
-		return
+		b.SendReply("you are not allowed to modify your own points.", ev, "badJanet")
+		return ""
 	}
 
 	record := &database.Points{
@@ -507,15 +524,15 @@ func (b *Bot) applyPoints(ev *slack.MessageEvent, whichJanet string, splitText s
 
 	err = b.Config.DB.InsertPoints(record)
 	if b.handleError(err, ev) {
-		return
+		return ""
 	}
 
 	pointsMsg, err := b.getUserPointsMessage(to, reason, points)
 	if b.handleError(err, ev) {
-		return
+		return ""
 	}
 
-	b.SendReply(pointsMsg, ev, whichJanet)
+	return pointsMsg
 }
 
 func (b *Bot) getThrowback(ev *slack.MessageEvent) {

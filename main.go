@@ -496,21 +496,6 @@ func (b *Bot) handleReactionEvent(ev *slack.ReactionAddedEvent, reason string, p
 	if b.handleError(err, nil) {
 		return
 	}
-
-	pointsMsg, err := b.getUserPointsMessage(to, reason, points)
-	if b.handleError(err, nil) {
-		return
-	}
-
-	whichJanet := ""
-	if points < 0 {
-		whichJanet = "badJanet"
-	} else {
-		whichJanet = "goodJanet"
-	}
-
-	// test
-	b.SendMessage(pointsMsg, ev.Item.Channel, ev.Item.Timestamp, whichJanet)
 }
 
 func (b *Bot) handleMessageEvent(ev *slack.MessageEvent) {
@@ -702,7 +687,6 @@ func (b *Bot) bangBangApplyPoints(ev *slack.ReactionAddedEvent, whichJanet, spli
 	reason := match[3]
 
 	if !b.Config.SelfPoints && from == to {
-		b.SendMessage("you are not allowed to modify your own points.", ev.Item.Channel, ev.Item.Timestamp, "badJanet")
 		return ""
 	}
 

@@ -14,6 +14,7 @@ require (
 	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/gorilla/mux v1.7.0
 	github.com/gorilla/websocket v1.4.0 // indirect
+	github.com/joho/godotenv v1.4.0 // indirect
 	github.com/kr/logfmt v0.0.0-20210122060352-19f9bcb100e6 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/lusis/go-slackbot v0.0.0-20180109053408-401027ccfef5 // indirect

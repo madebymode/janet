@@ -3,3 +3,4 @@ vendor/
 dist/
 *.sqlite3
 .env
+*/*/builds/*

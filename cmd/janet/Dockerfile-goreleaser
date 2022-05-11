@@ -1,4 +1,4 @@
 FROM alpine:3.6
 RUN apk add --no-cache sqlite ca-certificates
-COPY janet /
-ENTRYPOINT ["./janet"]
+COPY builds/production/linux/amd64/main /
+ENTRYPOINT ["./main"]

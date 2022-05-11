@@ -4,7 +4,7 @@ cd "${0%/*}" || exit
 
 docker run \
 	--rm -ti \
-	-v $(pwd):/golang/src/github.com/troyxmccall/janet \
+	-v $(pwd):/go/src/github.com/troyxmccall/janet \
 	-v /var/run/docker.sock:/var/run/docker.sock \
 	-v $HOME/.config/goreleaser/github_token:/root/.config/goreleaser/github_token \
     	-v $HOME/.docker/config.json:/root/.docker/config.json \

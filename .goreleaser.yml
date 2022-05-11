@@ -1,7 +1,8 @@
 builds:
   - id: janet
     binary: janet
-    env: CGO_ENABLED=1
+    env:
+      - CGO_ENABLED=1
     main: ./cmd/janet/main.go
     ldflags: -s -w -X "github.com/troyxmccall/janet.Version={{.Version}}"
     goos:
@@ -9,7 +10,8 @@ builds:
     goarch:
       - amd64
   - id: janetctl
-    env: CGO_ENABLED=1
+    env:
+      - CGO_ENABLED=1
     binary: janetctl
     main: ./cmd/janetctl/main.go
     ldflags: -s -w -X "github.com/troyxmccall/janet.Version={{.Version}}"

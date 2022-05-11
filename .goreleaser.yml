@@ -18,22 +18,19 @@ builds:
 snapshot:
   name_template: "{{ .Tag }}-next"
 dockers:
-  - binaries:
-      - janet
+  - id: janet
     dockerfile: ./cmd/janet/Dockerfile-goreleaser
     image_templates:
       - "troyxmccall/janet:{{ .Version }}"
       - "troyxmccall/janet:latest"
-  - binaries:
-      - janet
+  - id: janet-webui
     dockerfile: ./cmd/janet/Dockerfile-webui-goreleaser
     image_templates:
       - "troyxmccall/janet:{{ .Version }}-webui"
       - "troyxmccall/janet:latest-webui"
     extra_files:
       - www
-  - binaries:
-      - janetctl
+  - id: janetctl
     dockerfile: ./cmd/janetctl/Dockerfile-goreleaser
     image_templates:
       - "troyxmccall/janetctl:{{ .Version }}"

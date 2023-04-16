@@ -1,4 +1,5 @@
-FROM golang:1.13-alpine
+# Use the latest Go Alpine image for building
+FROM golang:alpine AS build
 
 # Need to mount /var/run/docker.sock
 # Need to mount /root/.config/goreleaser/github_token

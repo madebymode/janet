@@ -7,6 +7,8 @@ builds:
       - linux
     goarch:
       - amd64
+    env:
+      - CGO_ENABLED=1     
   - id: janetctl
     binary: janetctl
     main: ./cmd/janetctl/main.go
@@ -15,15 +17,24 @@ builds:
       - linux
     goarch:
       - amd64
+    env:
+      - CGO_ENABLED=1
 snapshot:
   name_template: "{{ .Tag }}-next"
+
 dockers:
   - id: janet
     dockerfile: ./cmd/janet/Dockerfile-goreleaser
+    # IDs to filter the binaries/packages.
+    ids:
+    - janet
     image_templates:
       - "troyxmccall/janet:{{ .Version }}"
       - "troyxmccall/janet:latest"
   - id: janet-webui
+      # IDs to filter the binaries/packages.
+    ids:
+    - janet
     dockerfile: ./cmd/janet/Dockerfile-webui-goreleaser
     image_templates:
       - "troyxmccall/janet:{{ .Version }}-webui"
@@ -31,6 +42,9 @@ dockers:
     extra_files:
       - www
   - id: janetctl
+      # IDs to filter the binaries/packages.
+    ids:
+    - janetctl
     dockerfile: ./cmd/janetctl/Dockerfile-goreleaser
     image_templates:
       - "troyxmccall/janetctl:{{ .Version }}"

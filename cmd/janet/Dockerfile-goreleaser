@@ -1,4 +1,6 @@
-FROM alpine:3.6
+# go releaser already built our binaries 
+FROM alpine:latest
+
 RUN apk add --no-cache sqlite ca-certificates
 COPY janet /
 ENTRYPOINT ["/janet"]

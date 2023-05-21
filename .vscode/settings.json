@@ -1,5 +1,5 @@
 {
-    "yaml.schemas": {
-        "https://json.schemastore.org/github-workflow.json": "file:///Users/tdmccall/projects/janet/.github/workflows/goreleaser.yml"
-    }
+  "yaml.schemas": {
+    "https://json.schemastore.org/github-workflow.json": "file:///Users/tdmccall/projects/janet/.github/workflows/goreleaser.yml"
+  }
 }

@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.17-alpine as builder
+FROM golang:alpine as builder
 
 # Install build dependencies
 RUN apk add --no-cache build-base sqlite-dev

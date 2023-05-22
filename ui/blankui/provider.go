@@ -1,7 +1,7 @@
 package blankui
 
 import (
-  "github.com/troyxmccall/janet/ui"
+	"github.com/troyxmccall/janet/ui"
 )
 
 // A Provider provides a UI service that can be
@@ -13,16 +13,16 @@ var _ ui.Provider = new(Provider)
 
 // New returns a new blankui Provider instance.
 func New() *Provider {
-  return &Provider{}
+	return &Provider{}
 }
 
 // Listen does nothing.
 func (p *Provider) Listen() error {
-  return nil
+	return nil
 }
 
 // GetURL returns an empty string which
 // signifies that the UI is disabled.
 func (p *Provider) GetURL(URI string) (string, error) {
-  return "", nil
+	return "", nil
 }

@@ -17,26 +17,27 @@ import (
 
 // cli flags
 var (
-	token            = flag.String("token", "", "slack RTM token for Good Janet")
-	badJanetToken    = flag.String("badJanetToken", "", "slack RTM token for Bad Janet")
-	oauthToken       = flag.String("oauthToken", "", "slack Web token for BANGBANG behavior")
-	dbpath           = flag.String("db", "./db.sqlite3", "path to sqlite database")
-	maxpoints        = flag.Int("maxpoints", 5, "the maximum amount of points that users can give/take at once")
-	leaderboardlimit = flag.Int("leaderboardlimit", 10, "the default amount of users to list in the leaderboard")
-	debug            = flag.Bool("debug", false, "set debug mode")
-	webuitotp        = flag.String("webui.totp", "", "totp key")
-	webuipath        = flag.String("webui.path", "", "path to web UI files")
-	webuilistenaddr  = flag.String("webui.listenaddr", "", "address to listen and serve the web ui on")
-	webuiurl         = flag.String("webui.url", "", "url address for accessing the web ui")
-	motivate         = flag.Bool("motivate", true, "toggle motivate.im support")
-	blacklist        = make(janet.StringList, 0)
-	reactji          = flag.Bool("reactji", true, "use reactji as karma operations")
-	upvotereactji    = make(janet.StringList, 0)
-	downvotereactji  = make(janet.StringList, 0)
-	repeatreactji    = make(janet.StringList, 0)
-	aliases          = make(janet.StringList, 0)
-	selfkarma        = flag.Bool("selfkarma", false, "allow users to add/remove karma to themselves")
-	replytype        = flag.String("replytype", "thread", "how to reply to commands (message, thread)")
+	token               = flag.String("token", "", "slack RTM token for Good Janet")
+	badJanetToken       = flag.String("badJanetToken", "", "slack RTM token for Bad Janet")
+	oauthToken          = flag.String("oauthToken", "", "slack Web token for BANGBANG behavior")
+	goodPlaceJudgeBotID = flag.String("goodPlaceJudgeBotID", "", "bot ID of goodplace judge - for editing threads")
+	dbpath              = flag.String("db", "./db.sqlite3", "path to sqlite database")
+	maxpoints           = flag.Int("maxpoints", 5, "the maximum amount of points that users can give/take at once")
+	leaderboardlimit    = flag.Int("leaderboardlimit", 10, "the default amount of users to list in the leaderboard")
+	debug               = flag.Bool("debug", false, "set debug mode")
+	webuitotp           = flag.String("webui.totp", "", "totp key")
+	webuipath           = flag.String("webui.path", "", "path to web UI files")
+	webuilistenaddr     = flag.String("webui.listenaddr", "", "address to listen and serve the web ui on")
+	webuiurl            = flag.String("webui.url", "", "url address for accessing the web ui")
+	motivate            = flag.Bool("motivate", true, "toggle motivate.im support")
+	blacklist           = make(janet.StringList, 0)
+	reactji             = flag.Bool("reactji", true, "use reactji as karma operations")
+	upvotereactji       = make(janet.StringList, 0)
+	downvotereactji     = make(janet.StringList, 0)
+	repeatreactji       = make(janet.StringList, 0)
+	aliases             = make(janet.StringList, 0)
+	selfkarma           = flag.Bool("selfkarma", false, "allow users to add/remove karma to themselves")
+	replytype           = flag.String("replytype", "thread", "how to reply to commands (message, thread)")
 )
 
 func main() {
@@ -59,6 +60,12 @@ func main() {
 
 	envy.Parse("JANET")
 	flag.Parse()
+
+	// validate flags
+	ll.Info("validating flags")
+	if *goodPlaceJudgeBotID == "" {
+		ll.Fatal("goodPlaceJudgeBotID is required")
+	}
 
 	// startup
 
@@ -180,21 +187,22 @@ func main() {
 	go ui.Listen()
 
 	bot := janet.New(&janet.Config{
-		Slack:            &janet.SlackChatService{*SlackConnection},
-		BadJanetSlack:    &janet.SlackChatService{*badJanetSlackConnection},
-		SlackWebClient:   slack.New(*oauthToken),
-		UI:               ui,
-		Debug:            *debug,
-		MaxPoints:        *maxpoints,
-		LeaderboardLimit: *leaderboardlimit,
-		Log:              ll,
-		DB:               db,
-		UserBlacklist:    blacklist,
-		Reactji:          reactjiConfig,
-		Motivate:         *motivate,
-		Aliases:          aliasMap,
-		SelfPoints:       *selfkarma,
-		ReplyType:        *replytype,
+		Slack:               &janet.SlackChatService{*SlackConnection},
+		BadJanetSlack:       &janet.SlackChatService{*badJanetSlackConnection},
+		SlackWebClient:      slack.New(*oauthToken),
+		UI:                  ui,
+		Debug:               *debug,
+		MaxPoints:           *maxpoints,
+		LeaderboardLimit:    *leaderboardlimit,
+		Log:                 ll,
+		DB:                  db,
+		UserBlacklist:       blacklist,
+		Reactji:             reactjiConfig,
+		Motivate:            *motivate,
+		Aliases:             aliasMap,
+		SelfPoints:          *selfkarma,
+		ReplyType:           *replytype,
+		GoodPlaceJudgeBotID: *goodPlaceJudgeBotID,
 	})
 
 	bot.Listen()

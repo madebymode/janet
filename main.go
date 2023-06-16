@@ -106,6 +106,7 @@ type Config struct {
 	Reactji                     *ReactjiConfig
 	WaitGroup                   *sync.WaitGroup
 	ReplyType                   string
+	GoodPlaceJudgeBotID         string
 }
 
 // A Bot is an instance of janet.
@@ -426,18 +427,83 @@ func (b *Bot) handleBangBangPoints(ev *slack.ReactionAddedEvent, addedReaction b
 			reason = "removed"
 		}
 
+		// Fetch conversation history
+		history, _, _, err := GetThreadHistory(b.Config.SlackWebClient, ev.Item.Channel, ev.Item.Timestamp)
+		if err != nil {
+			b.Config.Log.Error(err.Error())
+			return
+		}
+
+		// Find the latest message from goodPlaceJudge
+		var lastMsgFromBot *slack.Message
+
+		// Dump the bot IDs
+		for _, message := range history {
+			fmt.Println("BotID: ", message.BotID)
+		}
+
+		for _, message := range history {
+			if message.BotID == b.Config.GoodPlaceJudgeBotID {
+				lastMsgFromBot = &message
+				break
+			}
+		}
+
+		// Form the response message
+		var responseMsg string
+		if len(goodJanetResponse.String()) > 0 {
+			responseMsg = goodJanetResponse.String()
+		} else if len(badJanetResponse.String()) > 0 {
+			responseMsg = badJanetResponse.String()
+		}
+
 		//send combined messages as good janet
 		if len(goodJanetResponse.String()) > 0 {
 			reason := fmt.Sprintf("bc %s %s a :%s: emoji \n", from, reason, ev.Reaction)
 			goodJanetResponse.WriteString(reason)
-			b.SendMessage(goodJanetResponse.String(), ev.Item.Channel, ev.Item.Timestamp, "")
+			// If goodPlaceJudge has sent a message in this thread before, update it
+			// Otherwise, send a new message
+			if lastMsgFromBot != nil {
+
+				// get the current text of the message
+				currentMsg := lastMsgFromBot.Text
+
+				// create the new message
+				newMsg := currentMsg + "\n" + responseMsg
+
+				_, _, _, err = b.Config.SlackWebClient.UpdateMessage(ev.Item.Channel, lastMsgFromBot.Timestamp, slack.MsgOptionText(newMsg, false))
+			} else {
+				_, _, err = b.Config.SlackWebClient.PostMessage(ev.Item.Channel, slack.MsgOptionText(responseMsg, false), slack.MsgOptionTS(ev.Item.Timestamp))
+			}
+
+			if err != nil {
+				b.Config.Log.Error(err.Error())
+			}
+
 		}
 
 		//send combined messages as bad janet
 		if len(badJanetResponse.String()) > 0 {
 			reason := fmt.Sprintf("bc %s %s a :%s: emoji \n", from, reason, ev.Reaction)
 			badJanetResponse.WriteString(reason)
-			b.SendMessage(badJanetResponse.String(), ev.Item.Channel, ev.Item.Timestamp, "badJanet")
+			// If goodPlaceJudge has sent a message in this thread before, update it
+			// Otherwise, send a new message
+			if lastMsgFromBot != nil {
+
+				// get the current text of the message
+				currentMsg := lastMsgFromBot.Text
+
+				// create the new message
+				newMsg := currentMsg + "\n" + responseMsg
+
+				_, _, _, err = b.Config.SlackWebClient.UpdateMessage(ev.Item.Channel, lastMsgFromBot.Timestamp, slack.MsgOptionText(newMsg, false))
+			} else {
+				_, _, err = b.Config.SlackWebClient.PostMessage(ev.Item.Channel, slack.MsgOptionText(responseMsg, false), slack.MsgOptionTS(ev.Item.Timestamp))
+			}
+
+			if err != nil {
+				b.Config.Log.Error(err.Error())
+			}
 
 		}
 
@@ -454,11 +520,11 @@ func GetMessage(slackClient *slack.Client, channelId string, messageId string) (
 	})
 }
 
-func GetPrecedingMessage(slackClient *slack.Client, channelId string, fromMessageId string) (*slack.GetConversationHistoryResponse, error) {
-	return slackClient.GetConversationHistory(&slack.GetConversationHistoryParameters{
+func GetThreadHistory(slackClient *slack.Client, channelId string, threadTs string) ([]slack.Message, bool, string, error) {
+	return slackClient.GetConversationReplies(&slack.GetConversationRepliesParameters{
 		ChannelID: channelId,
-		Latest:    fromMessageId,
-		Limit:     1,
+		Timestamp: threadTs,
+		Inclusive: true,
 	})
 }
 

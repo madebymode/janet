@@ -1,7 +1,7 @@
-#!/bin/bash
+#!/usr/local/bin/bash
 
 # Define version
-VERSION="2.0.15"
+VERSION="2.0.16"
 
 # Define dockerfiles and tags
 declare -A dockerfiles=( ["janet"]="./cmd/janet/Dockerfile"  )

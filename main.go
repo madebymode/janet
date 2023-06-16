@@ -457,7 +457,6 @@ func (b *Bot) handleBangBangPoints(ev *slack.ReactionAddedEvent, addedReaction b
 			responseMsg = badJanetResponse.String()
 		}
 
-		//send combined messages as good janet
 		if len(goodJanetResponse.String()) > 0 {
 			reason := fmt.Sprintf("bc %s %s a :%s: emoji \n", from, reason, ev.Reaction)
 			goodJanetResponse.WriteString(reason)
@@ -482,7 +481,6 @@ func (b *Bot) handleBangBangPoints(ev *slack.ReactionAddedEvent, addedReaction b
 
 		}
 
-		//send combined messages as bad janet
 		if len(badJanetResponse.String()) > 0 {
 			reason := fmt.Sprintf("bc %s %s a :%s: emoji \n", from, reason, ev.Reaction)
 			badJanetResponse.WriteString(reason)
@@ -609,14 +607,21 @@ func (b *Bot) handleMessageEvent(ev *slack.MessageEvent) {
 				b.queryPoints(ev)
 			}
 		}
-		//send combined messages as good janet
+
 		if len(goodJanetResponse.String()) > 0 {
-			b.SendReply(goodJanetResponse.String(), ev, "")
+			responseMsg := goodJanetResponse.String()
+			_, _, err := b.Config.SlackWebClient.PostMessage(ev.Channel, slack.MsgOptionText(responseMsg, false), slack.MsgOptionTS(ev.Timestamp))
+			if err != nil {
+				b.Config.Log.Error(err.Error())
+			}
 		}
 
-		//send combined messages as bad janet
 		if len(badJanetResponse.String()) > 0 {
-			b.SendReply(badJanetResponse.String(), ev, "badJanet")
+			responseMsg := badJanetResponse.String()
+			_, _, err := b.Config.SlackWebClient.PostMessage(ev.Channel, slack.MsgOptionText(responseMsg, false), slack.MsgOptionTS(ev.Timestamp))
+			if err != nil {
+				b.Config.Log.Error(err.Error())
+			}
 		}
 
 	} else {

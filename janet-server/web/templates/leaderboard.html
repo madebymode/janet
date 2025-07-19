@@ -1,0 +1,70 @@
+{{define "content"}}
+<div class="card">
+    <h2>Leaderboard</h2>
+    
+    <div class="form-group" style="max-width: 200px;">
+        <label for="limit-select">Show top:</label>
+        <select id="limit-select" onchange="Pages.loadLeaderboard(this.value)">
+            <option value="10">10 users</option>
+            <option value="25">25 users</option>
+            <option value="50">50 users</option>
+            <option value="100">100 users</option>
+        </select>
+    </div>
+    
+    <div class="leaderboard">
+        <table id="leaderboard">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>User</th>
+                    <th>Points</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td colspan="3" class="loading">Loading...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <h2>User Lookup</h2>
+    <form id="user-lookup-form" onsubmit="lookupUser(event)">
+        <div class="form-group">
+            <label for="username">Username:</label>
+            <input type="text" id="username" placeholder="Enter username" required>
+        </div>
+        <button type="submit" class="btn">Lookup User</button>
+    </form>
+    
+    <div id="user-result" style="margin-top: 1rem;"></div>
+</div>
+
+<script>
+async function lookupUser(event) {
+    event.preventDefault();
+    const username = document.getElementById('username').value;
+    const resultDiv = document.getElementById('user-result');
+    
+    try {
+        const data = await Janet.API.get(`/api/user/${username}`);
+        resultDiv.innerHTML = `
+            <div class="card">
+                <h3>${data.name}</h3>
+                <p><strong>Points:</strong> ${data.points}</p>
+                <p><strong>Rank:</strong> #${data.rank}</p>
+            </div>
+        `;
+    } catch (error) {
+        resultDiv.innerHTML = `
+            <div class="alert alert-error">
+                User not found or error occurred
+            </div>
+        `;
+    }
+}
+</script>
+{{end}}

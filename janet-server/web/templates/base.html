@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Janet</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+</head>
+<body>
+    <div class="header">
+        <div class="container">
+            <h1>Janet Stats</h1>
+        </div>
+    </div>
+    
+    <nav class="nav">
+        <div class="container">
+            <ul>
+                {{if .IsAdmin}}
+                <li><a href="/admin/">Dashboard</a></li>
+                <li><a href="/admin/config">Configuration</a></li>
+                <li><a href="/admin/backfill">Backfill</a></li>
+                <li><a href="/admin/users">Users</a></li>
+                <li><a href="/">Public View</a></li>
+                {{else}}
+                <li><a href="/">Home</a></li>
+                <li><a href="/leaderboard">Leaderboard</a></li>
+                <li><a href="/stats">Statistics</a></li>
+                {{end}}
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container">
+        {{template "content" .}}
+    </div>
+
+    <script src="/static/js/main.js"></script>
+    {{if .ExtraJS}}
+        {{range .ExtraJS}}
+            <script src="{{.}}"></script>
+        {{end}}
+    {{end}}
+</body>
+</html>

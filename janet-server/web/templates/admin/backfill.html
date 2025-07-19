@@ -1,0 +1,216 @@
+{{define "content"}}
+<div class="card">
+    <h2>Backfill Karma Data</h2>
+    <p>Use this tool to backfill karma data from Slack channel history. This will scan messages for karma patterns and add them to the database.</p>
+    
+    <form id="backfill-form">
+        <div class="form-group">
+            <label for="backfill-channel">Channel ID:</label>
+            <input type="text" id="backfill-channel" placeholder="C1234567890" required>
+            <small>Slack channel ID to backfill (found in channel URL or by right-clicking channel)</small>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="form-group">
+                <label for="backfill-since">Since Date (optional):</label>
+                <input type="date" id="backfill-since">
+                <small>Start date for backfill</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="backfill-until">Until Date (optional):</label>
+                <input type="date" id="backfill-until">
+                <small>End date for backfill</small>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="backfill-limit">Message Limit:</label>
+            <input type="number" id="backfill-limit" value="1000" min="1" max="10000">
+            <small>Maximum number of messages to process</small>
+        </div>
+        
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="backfill-dry-run" checked> 
+                Dry Run (preview results without saving)
+            </label>
+        </div>
+        
+        <div style="display: flex; gap: 1rem;">
+            <button type="submit" class="btn btn-success">Run Backfill</button>
+            <button type="button" class="btn" onclick="getChannelList()">List Channels</button>
+        </div>
+    </form>
+</div>
+
+<div id="backfill-results" style="display: none;">
+    <div class="card">
+        <h2>Backfill Results</h2>
+        <div id="results-content"></div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Channel Browser</h2>
+    <div style="margin-bottom: 1rem;">
+        <button class="btn" onclick="getChannelList()">Load Channels</button>
+    </div>
+    <div id="channel-list">
+        <div style="color: #666; font-style: italic;">Click "Load Channels" to browse available channels</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Backfill History</h2>
+    <div id="backfill-history">
+        <div class="loading">Loading...</div>
+    </div>
+</div>
+
+<script>
+document.getElementById('backfill-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const channelId = document.getElementById('backfill-channel').value;
+    const since = document.getElementById('backfill-since').value;
+    const until = document.getElementById('backfill-until').value;
+    const limit = parseInt(document.getElementById('backfill-limit').value);
+    const dryRun = document.getElementById('backfill-dry-run').checked;
+    
+    if (!channelId) {
+        Janet.UI.showAlert('Channel ID is required', 'error');
+        return;
+    }
+    
+    const button = e.target.querySelector('button[type="submit"]');
+    button.disabled = true;
+    button.textContent = 'Running...';
+    
+    const resultsDiv = document.getElementById('backfill-results');
+    const resultsContent = document.getElementById('results-content');
+    
+    try {
+        const result = await Janet.API.post('/admin/api/backfill', {
+            channelId,
+            since,
+            until,
+            limit,
+            dryRun
+        });
+        
+        resultsDiv.style.display = 'block';
+        resultsContent.innerHTML = `
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number">${result.processed}</div>
+                    <div class="stat-label">Messages Processed</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${result.pointsAwarded}</div>
+                    <div class="stat-label">Points ${dryRun ? 'Would Be ' : ''}Awarded</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${result.transactionsFound}</div>
+                    <div class="stat-label">Karma Transactions</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${(result.processed / result.duration * 1000).toFixed(1)}</div>
+                    <div class="stat-label">Messages/sec</div>
+                </div>
+            </div>
+            
+            ${result.errors && result.errors.length > 0 ? `
+                <div class="alert alert-error">
+                    <strong>Errors encountered:</strong>
+                    <ul>
+                        ${result.errors.map(error => `<li>${error}</li>`).join('')}
+                    </ul>
+                </div>
+            ` : ''}
+            
+            ${dryRun ? `
+                <div class="alert" style="background: #fff3cd; border-color: #ffeaa7; color: #856404;">
+                    <strong>Dry Run Complete:</strong> No data was actually saved. Uncheck "Dry Run" and run again to save the results.
+                </div>
+            ` : `
+                <div class="alert alert-success">
+                    <strong>Backfill Complete:</strong> ${result.pointsAwarded} points have been added to the database.
+                </div>
+            `}
+        `;
+        
+        // Refresh backfill history
+        loadBackfillHistory();
+        
+    } catch (error) {
+        resultsDiv.style.display = 'block';
+        resultsContent.innerHTML = `
+            <div class="alert alert-error">
+                <strong>Backfill Failed:</strong> ${error.message}
+            </div>
+        `;
+    } finally {
+        button.disabled = false;
+        button.textContent = 'Run Backfill';
+    }
+});
+
+async function getChannelList() {
+    const channelListDiv = document.getElementById('channel-list');
+    channelListDiv.innerHTML = '<div class="loading">Loading channels...</div>';
+    
+    try {
+        const channels = await Janet.API.get('/admin/api/channels');
+        channelListDiv.innerHTML = channels.map(channel => `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border: 1px solid #ddd; margin: 0.25rem 0; border-radius: 4px;">
+                <div>
+                    <strong>#${channel.name}</strong>
+                    <br>
+                    <small style="color: #666;">${channel.id}</small>
+                </div>
+                <button class="btn" style="padding: 0.25rem 0.5rem;" onclick="selectChannel('${channel.id}', '${channel.name}')">Select</button>
+            </div>
+        `).join('');
+    } catch (error) {
+        channelListDiv.innerHTML = '<div class="alert alert-error">Failed to load channels</div>';
+    }
+}
+
+function selectChannel(channelId, channelName) {
+    document.getElementById('backfill-channel').value = channelId;
+    Janet.UI.showAlert(`Selected channel #${channelName}`);
+}
+
+async function loadBackfillHistory() {
+    try {
+        const history = await Janet.API.get('/admin/api/backfill/history');
+        document.getElementById('backfill-history').innerHTML = history.map(entry => `
+            <div style="padding: 1rem; border: 1px solid #ddd; margin: 0.5rem 0; border-radius: 4px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <strong>Channel:</strong> ${entry.channelName || entry.channelId}
+                        <br>
+                        <strong>Date:</strong> ${new Date(entry.timestamp).toLocaleString()}
+                    </div>
+                    <div style="text-align: right;">
+                        <div class="stat-number" style="font-size: 1.2rem;">${entry.pointsAwarded}</div>
+                        <div class="stat-label">Points Awarded</div>
+                    </div>
+                </div>
+                <div style="margin-top: 0.5rem; font-size: 0.9rem; color: #666;">
+                    ${entry.processed} messages processed, ${entry.transactionsFound} transactions found
+                    ${entry.dryRun ? ' (Dry Run)' : ''}
+                </div>
+            </div>
+        `).join('') || '<div style="color: #666; font-style: italic;">No backfill history</div>';
+    } catch (error) {
+        document.getElementById('backfill-history').innerHTML = '<div class="alert alert-error">Failed to load backfill history</div>';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadBackfillHistory();
+});
+</script>
+{{end}}

@@ -1,0 +1,248 @@
+{{define "content"}}
+<div class="card">
+    <h2>Configuration Management</h2>
+    <form id="config-form">
+        <h3>Slack Settings</h3>
+        <div class="form-group">
+            <label for="slack-token">Slack Bot Token:</label>
+            <input type="password" id="slack-token" placeholder="xoxb-...">
+            <small>OAuth token for your Slack bot</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="slack-socket-token">Slack Socket Mode Token:</label>
+            <input type="password" id="slack-socket-token" placeholder="xapp-...">
+            <small>Socket mode token for real-time events</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="good-place-judge-bot-id">Good Place Judge Bot ID:</label>
+            <input type="text" id="good-place-judge-bot-id" placeholder="B123456789">
+            <small>Bot ID for thread management</small>
+        </div>
+        
+        <h3>Bot Behavior</h3>
+        <div class="form-group">
+            <label for="max-points">Maximum Points per Transaction:</label>
+            <input type="number" id="max-points" min="1" max="100" value="5">
+        </div>
+        
+        <div class="form-group">
+            <label for="leaderboard-limit">Default Leaderboard Limit:</label>
+            <input type="number" id="leaderboard-limit" min="1" max="1000" value="10">
+        </div>
+        
+        <div class="form-group">
+            <label for="reply-type">Reply Type:</label>
+            <select id="reply-type">
+                <option value="thread">Thread</option>
+                <option value="message">Message</option>
+                <option value="ephemeral">Ephemeral</option>
+            </select>
+        </div>
+        
+        <h3>Features</h3>
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="debug"> Debug Mode
+            </label>
+        </div>
+        
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="self-karma"> Allow Self Karma
+            </label>
+        </div>
+        
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="motivate"> Motivate.im Support
+            </label>
+        </div>
+        
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="reactji"> Reactji Support
+            </label>
+        </div>
+        
+        <h3>Bot Personalities</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div>
+                <h4>Good Janet</h4>
+                <div class="form-group">
+                    <label for="good-janet-username">Username:</label>
+                    <input type="text" id="good-janet-username" value="Good Janet">
+                </div>
+                <div class="form-group">
+                    <label for="good-janet-icon">Icon URL:</label>
+                    <input type="url" id="good-janet-icon" placeholder="https://...">
+                </div>
+            </div>
+            <div>
+                <h4>Bad Janet</h4>
+                <div class="form-group">
+                    <label for="bad-janet-username">Username:</label>
+                    <input type="text" id="bad-janet-username" value="Bad Janet">
+                </div>
+                <div class="form-group">
+                    <label for="bad-janet-icon">Icon URL:</label>
+                    <input type="url" id="bad-janet-icon" placeholder="https://...">
+                </div>
+            </div>
+        </div>
+        
+        <h3>Database</h3>
+        <div class="form-group">
+            <label for="database-url">Database URL:</label>
+            <input type="text" id="database-url" value="postgres://user:password@host:port/database?sslmode=disable" readonly>
+            <small>PostgreSQL connection string (read-only, restart required to change)</small>
+        </div>
+        
+        <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+            <button type="submit" class="btn btn-success">Save Configuration</button>
+            <button type="button" class="btn" onclick="loadDefaults()">Load Defaults</button>
+            <button type="button" class="btn btn-danger" onclick="resetConfig()">Reset to Defaults</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h2>User Management</h2>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div>
+            <h3>Blacklisted Users</h3>
+            <div id="blacklist-users">
+                <div class="loading">Loading...</div>
+            </div>
+            <div class="form-group">
+                <input type="text" id="new-blacklist-user" placeholder="Username to blacklist">
+                <button type="button" class="btn" onclick="addBlacklistUser()">Add</button>
+            </div>
+        </div>
+        
+        <div>
+            <h3>User Aliases</h3>
+            <div id="user-aliases">
+                <div class="loading">Loading...</div>
+            </div>
+            <div class="form-group">
+                <input type="text" id="alias-from" placeholder="Alias">
+                <input type="text" id="alias-to" placeholder="Main username">
+                <button type="button" class="btn" onclick="addAlias()">Add Alias</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+async function loadDefaults() {
+    // Reset form to default values
+    document.getElementById('max-points').value = 5;
+    document.getElementById('leaderboard-limit').value = 10;
+    document.getElementById('reply-type').value = 'thread';
+    document.getElementById('debug').checked = false;
+    document.getElementById('self-karma').checked = false;
+    document.getElementById('motivate').checked = true;
+    document.getElementById('reactji').checked = true;
+    document.getElementById('good-janet-username').value = 'Good Janet';
+    document.getElementById('bad-janet-username').value = 'Bad Janet';
+    Janet.UI.showAlert('Defaults loaded');
+}
+
+async function resetConfig() {
+    if (confirm('Reset all configuration to defaults? This will restart the bot.')) {
+        try {
+            await Janet.API.post('/admin/api/config/reset');
+            Janet.UI.showAlert('Configuration reset, bot restarting...');
+            setTimeout(() => location.reload(), 3000);
+        } catch (error) {
+            Janet.UI.showAlert('Failed to reset configuration', 'error');
+        }
+    }
+}
+
+async function addBlacklistUser() {
+    const username = document.getElementById('new-blacklist-user').value.trim();
+    if (!username) return;
+    
+    try {
+        await Janet.API.post('/admin/api/blacklist', { username });
+        document.getElementById('new-blacklist-user').value = '';
+        loadBlacklistUsers();
+        Janet.UI.showAlert('User blacklisted');
+    } catch (error) {
+        Janet.UI.showAlert('Failed to blacklist user', 'error');
+    }
+}
+
+async function removeBlacklistUser(username) {
+    try {
+        await Janet.API.delete(`/admin/api/blacklist/${username}`);
+        loadBlacklistUsers();
+        Janet.UI.showAlert('User removed from blacklist');
+    } catch (error) {
+        Janet.UI.showAlert('Failed to remove user from blacklist', 'error');
+    }
+}
+
+async function addAlias() {
+    const from = document.getElementById('alias-from').value.trim();
+    const to = document.getElementById('alias-to').value.trim();
+    if (!from || !to) return;
+    
+    try {
+        await Janet.API.post('/admin/api/aliases', { from, to });
+        document.getElementById('alias-from').value = '';
+        document.getElementById('alias-to').value = '';
+        loadAliases();
+        Janet.UI.showAlert('Alias added');
+    } catch (error) {
+        Janet.UI.showAlert('Failed to add alias', 'error');
+    }
+}
+
+async function removeAlias(from) {
+    try {
+        await Janet.API.delete(`/admin/api/aliases/${from}`);
+        loadAliases();
+        Janet.UI.showAlert('Alias removed');
+    } catch (error) {
+        Janet.UI.showAlert('Failed to remove alias', 'error');
+    }
+}
+
+async function loadBlacklistUsers() {
+    try {
+        const data = await Janet.API.get('/admin/api/blacklist');
+        document.getElementById('blacklist-users').innerHTML = data.users.map(user => `
+            <div style="display: flex; justify-content: space-between; padding: 0.5rem; border: 1px solid #ddd; margin: 0.25rem 0; border-radius: 4px;">
+                <span>${user}</span>
+                <button class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;" onclick="removeBlacklistUser('${user}')">Remove</button>
+            </div>
+        `).join('') || '<div style="color: #666; font-style: italic;">No blacklisted users</div>';
+    } catch (error) {
+        document.getElementById('blacklist-users').innerHTML = '<div class="alert alert-error">Failed to load blacklist</div>';
+    }
+}
+
+async function loadAliases() {
+    try {
+        const data = await Janet.API.get('/admin/api/aliases');
+        document.getElementById('user-aliases').innerHTML = Object.entries(data.aliases).map(([from, to]) => `
+            <div style="display: flex; justify-content: space-between; padding: 0.5rem; border: 1px solid #ddd; margin: 0.25rem 0; border-radius: 4px;">
+                <span><strong>${from}</strong> → ${to}</span>
+                <button class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;" onclick="removeAlias('${from}')">Remove</button>
+            </div>
+        `).join('') || '<div style="color: #666; font-style: italic;">No aliases configured</div>';
+    } catch (error) {
+        document.getElementById('user-aliases').innerHTML = '<div class="alert alert-error">Failed to load aliases</div>';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadBlacklistUsers();
+    loadAliases();
+});
+</script>
+{{end}}

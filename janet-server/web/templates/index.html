@@ -1,0 +1,54 @@
+{{define "content"}}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-number" id="total-users">-</div>
+        <div class="stat-label">Total Users</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number" id="total-points">-</div>
+        <div class="stat-label">Total Points</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number" id="total-transactions">-</div>
+        <div class="stat-label">Transactions</div>
+    </div>
+    <div class="stat-card">
+        <div class="status-indicator {{if .BotOnline}}status-online{{else}}status-offline{{end}}"></div>
+        <div class="stat-label">Bot Status</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Recent Leaderboard</h2>
+    <div class="leaderboard">
+        <table id="leaderboard">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>User</th>
+                    <th>Points</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td colspan="3" class="loading">Loading...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div style="text-align: center; margin-top: 1rem;">
+        <a href="/leaderboard" class="btn">View Full Leaderboard</a>
+    </div>
+</div>
+
+<div class="card">
+    <h2>About Good Place Judge</h2>
+    <p>Good Place Judge is a Slack bot that tracks karma points for team members. Users can give or take points from each other using simple commands:</p>
+    <ul>
+        <li><code>@username++</code> - Give points</li>
+        <li><code>@username--</code> - Take points</li>
+        <li><code>@username?</code> - Check points</li>
+        <li><code>goodplace leaderboard</code> - Show leaderboard</li>
+    </ul>
+</div>
+{{end}}

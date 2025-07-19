@@ -1,0 +1,5 @@
+# Build artifacts
+janet-backfill
+
+# Logs
+*.log

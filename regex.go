@@ -1,123 +1,28 @@
 package janet
 
-import (
-	"fmt"
-	"regexp"
-	"strings"
-)
+import "regexp"
 
-type karmaRegex struct {
-	user, autocomplete, explicitAutocomplete, goodPoints, badPoints, reason string
+// KarmaRegexps provides regex patterns for karma operations
+type KarmaRegexps struct{}
+
+var karmaReg = &KarmaRegexps{}
+
+func (k *KarmaRegexps) MatchMotivate() *regexp.Regexp {
+	return regexp.MustCompile(`^(.+)\s*motivate\s*$`)
 }
 
-var karmaReg = &karmaRegex{
-	user:                 `@??((?:<@)??\w[A-Za-z0-9_\-@<>]*?)`,
-	autocomplete:         `:?? ??`,
-	explicitAutocomplete: `(?:: )??`,
-	goodPoints:           `([\+]{2,})`,
-	badPoints:            `([\-]{2,})`,
-	reason:               `(?:(?: for) +(.*))?`,
+func (k *KarmaRegexps) MatchGive() *regexp.Regexp {
+	return regexp.MustCompile(`(<@[A-Za-z0-9]+>)\s*(\+{2,})(\s+for\s+(.+))?|(\S+)\s*(\+{2,})(\s+for\s+(.+))?`)
 }
 
-func (r *karmaRegex) MatchGive() *regexp.Regexp {
-	expression := fmt.Sprintf(
-		"(?:%s)|(?:%s)",
-		strings.Join(
-			[]string{
-				"^",
-				r.user,
-				r.autocomplete,
-				r.goodPoints,
-				r.reason,
-				"$",
-			},
-			"",
-		),
-		strings.Join(
-			[]string{
-				`\s+`,
-				r.user,
-				r.explicitAutocomplete,
-				r.goodPoints,
-				r.reason,
-				"$",
-			},
-			"",
-		),
-	)
-
-	return regexp.MustCompile(expression)
+func (k *KarmaRegexps) MatchTake() *regexp.Regexp {
+	return regexp.MustCompile(`(<@[A-Za-z0-9]+>)\s*(\-{2,})(\s+for\s+(.+))?|(\S+)\s*(\-{2,})(\s+for\s+(.+))?`)
 }
 
-func (r *karmaRegex) MatchTake() *regexp.Regexp {
-	expression := fmt.Sprintf(
-		"(?:%s)|(?:%s)",
-		strings.Join(
-			[]string{
-				"^",
-				r.user,
-				r.autocomplete,
-				r.badPoints,
-				r.reason,
-				"$",
-			},
-			"",
-		),
-		strings.Join(
-			[]string{
-				`\s+`,
-				r.user,
-				r.explicitAutocomplete,
-				r.badPoints,
-				r.reason,
-				"$",
-			},
-			"",
-		),
-	)
-
-	return regexp.MustCompile(expression)
+func (k *KarmaRegexps) MatchQuery() *regexp.Regexp {
+	return regexp.MustCompile(`^(?:goodplace\s+)?(?:karma|points)\s+for\s+(\S+)`)
 }
 
-func (r *karmaRegex) MatchMotivate() *regexp.Regexp {
-	expression := strings.Join(
-		[]string{
-			`^(?:\?|!)m +`,
-			r.user,
-			r.autocomplete,
-			"$",
-		},
-		"",
-	)
-
-	return regexp.MustCompile(expression)
-}
-
-func (r *karmaRegex) MatchQuery() *regexp.Regexp {
-	expression := strings.Join(
-		[]string{
-			`^`,
-			r.user,
-			r.autocomplete,
-			"==",
-			"$",
-		},
-		"",
-	)
-
-	return regexp.MustCompile(expression)
-}
-
-func (r *karmaRegex) MatchThrowback() *regexp.Regexp {
-	expression := strings.Join(
-		[]string{
-			`^janet(?:bot)? (?:throwback) ?(`,
-			r.user,
-			r.autocomplete,
-			`)?$`,
-		},
-		"",
-	)
-
-	return regexp.MustCompile(expression)
+func (k *KarmaRegexps) MatchThrowback() *regexp.Regexp {
+	return regexp.MustCompile(`^(?:goodplace\s+)?throwback(?:\s+(\S+))?`)
 }

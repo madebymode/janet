@@ -1,8 +1,0 @@
-FROM alpine:latest
-RUN apk add --no-cache sqlite ca-certificates
-COPY janet /
-COPY www /www
-EXPOSE 4000
-ENV KB_WEBUI_LISTENADDR 0.0.0.0:4000
-ENV KB_WEBUI_PATH /www
-ENTRYPOINT ["/janet"]

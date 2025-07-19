@@ -1,0 +1,139 @@
+{{define "content"}}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-number" id="total-users">-</div>
+        <div class="stat-label">Total Users</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number" id="total-points">-</div>
+        <div class="stat-label">Total Points</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number" id="total-transactions">-</div>
+        <div class="stat-label">Transactions</div>
+    </div>
+    <div class="stat-card">
+        <div class="status-indicator {{if .BotOnline}}status-online{{else}}status-offline{{end}}"></div>
+        <div class="stat-label">Bot Status</div>
+    </div>
+</div>
+
+<div class="grid">
+    <div class="card">
+        <h2>System Status</h2>
+        <table style="width: 100%;">
+            <tr>
+                <td><strong>Bot Version:</strong></td>
+                <td>{{.Version}}</td>
+            </tr>
+            <tr>
+                <td><strong>Database:</strong></td>
+                <td>{{.DatabasePath}}</td>
+            </tr>
+            <tr>
+                <td><strong>Uptime:</strong></td>
+                <td id="uptime">{{.Uptime}}</td>
+            </tr>
+            <tr>
+                <td><strong>Memory Usage:</strong></td>
+                <td id="memory">{{.MemoryUsage}}</td>
+            </tr>
+        </table>
+        
+        <div style="margin-top: 1rem;">
+            <button class="btn btn-success" onclick="restartBot()">Restart Bot</button>
+            <button class="btn" onclick="refreshStatus()">Refresh Status</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Quick Actions</h2>
+        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <a href="/admin/config" class="btn">Configure Settings</a>
+            <a href="/admin/backfill" class="btn">Run Backfill</a>
+            <a href="/admin/users" class="btn">Manage Users</a>
+            <button class="btn" onclick="exportData()">Export Data</button>
+            <button class="btn btn-danger" onclick="clearAllData()" style="margin-top: 1rem;">Clear All Data</button>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Recent Activity</h2>
+    <div id="recent-activity">
+        <div class="loading">Loading...</div>
+    </div>
+</div>
+
+<script>
+async function restartBot() {
+    if (confirm('Are you sure you want to restart the bot? This will cause a brief disconnection.')) {
+        try {
+            await Janet.API.post('/admin/api/restart');
+            Janet.UI.showAlert('Bot restart initiated');
+        } catch (error) {
+            Janet.UI.showAlert('Failed to restart bot', 'error');
+        }
+    }
+}
+
+async function refreshStatus() {
+    try {
+        const status = await Janet.API.get('/admin/api/status');
+        document.getElementById('uptime').textContent = status.uptime;
+        document.getElementById('memory').textContent = status.memoryUsage;
+        Janet.UI.showAlert('Status refreshed');
+    } catch (error) {
+        Janet.UI.showAlert('Failed to refresh status', 'error');
+    }
+}
+
+async function exportData() {
+    try {
+        const response = await fetch('/admin/api/export');
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `janet-data-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        Janet.UI.showAlert('Data export started');
+    } catch (error) {
+        Janet.UI.showAlert('Failed to export data', 'error');
+    }
+}
+
+async function clearAllData() {
+    const confirmation = prompt('This will permanently delete ALL karma data. Type "DELETE ALL DATA" to confirm:');
+    if (confirmation === 'DELETE ALL DATA') {
+        try {
+            await Janet.API.delete('/admin/api/data');
+            Janet.UI.showAlert('All data has been cleared');
+            location.reload();
+        } catch (error) {
+            Janet.UI.showAlert('Failed to clear data', 'error');
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        const activity = await Janet.API.get('/api/stats/recent-activity?limit=10');
+        document.getElementById('recent-activity').innerHTML = activity.map(a => `
+            <div style="padding: 0.5rem 0; border-bottom: 1px solid #eee; font-size: 0.9rem;">
+                <strong>${a.from}</strong> gave <strong>${a.to}</strong> 
+                ${a.points > 0 ? '+' : ''}${a.points} points
+                ${a.reason ? `<em>for ${a.reason}</em>` : ''}
+                <br>
+                <small style="color: #666;">${new Date(a.timestamp).toLocaleString()}</small>
+            </div>
+        `).join('');
+    } catch (error) {
+        document.getElementById('recent-activity').innerHTML = '<div class="alert alert-error">Failed to load recent activity</div>';
+    }
+});
+</script>
+{{end}}

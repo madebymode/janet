@@ -1,4 +1,0 @@
-FROM alpine:latest
-RUN apk add --no-cache sqlite ca-certificates
-COPY janetctl /
-ENTRYPOINT ["/janetctl"]

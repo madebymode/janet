@@ -1,0 +1,358 @@
+{{define "content"}}
+<div class="card">
+    <h2>User Management</h2>
+    
+    <div style="display: flex; gap: 1rem; margin-bottom: 1rem; align-items: center;">
+        <input type="text" id="user-search" placeholder="Search users..." style="flex: 1;">
+        <button class="btn" onclick="searchUsers()">Search</button>
+        <button class="btn" onclick="loadAllUsers()">Show All</button>
+    </div>
+    
+    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+        <select id="sort-by">
+            <option value="points">Sort by Points</option>
+            <option value="name">Sort by Name</option>
+            <option value="transactions">Sort by Transactions</option>
+        </select>
+        <select id="sort-order">
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+        </select>
+        <button class="btn" onclick="applySorting()">Apply</button>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Users</h2>
+    <div id="users-list">
+        <div class="loading">Loading users...</div>
+    </div>
+    
+    <div id="pagination" style="text-align: center; margin-top: 1rem;"></div>
+</div>
+
+<div class="card">
+    <h2>Bulk Actions</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+        <div>
+            <h3>Adjust Points</h3>
+            <div class="form-group">
+                <input type="text" id="bulk-username" placeholder="Username">
+            </div>
+            <div class="form-group">
+                <input type="number" id="bulk-points" placeholder="Points to add/subtract">
+            </div>
+            <div class="form-group">
+                <input type="text" id="bulk-reason" placeholder="Reason">
+            </div>
+            <button class="btn" onclick="adjustUserPoints()">Adjust Points</button>
+        </div>
+        
+        <div>
+            <h3>Merge Users</h3>
+            <div class="form-group">
+                <input type="text" id="merge-from" placeholder="Source username">
+            </div>
+            <div class="form-group">
+                <input type="text" id="merge-to" placeholder="Target username">
+            </div>
+            <button class="btn btn-danger" onclick="mergeUsers()">Merge Users</button>
+            <small>All points from source user will be transferred to target user</small>
+        </div>
+        
+        <div>
+            <h3>Delete User</h3>
+            <div class="form-group">
+                <input type="text" id="delete-username" placeholder="Username to delete">
+            </div>
+            <button class="btn btn-danger" onclick="deleteUser()">Delete User</button>
+            <small>This will permanently delete all karma data for this user</small>
+        </div>
+    </div>
+</div>
+
+<!-- User Detail Modal -->
+<div id="user-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 8px; max-width: 600px; width: 90%; max-height: 80%; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h2 id="modal-username">User Details</h2>
+            <button onclick="closeUserModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+        </div>
+        <div id="modal-content"></div>
+    </div>
+</div>
+
+<script>
+let currentPage = 1;
+let usersPerPage = 20;
+let allUsers = [];
+let filteredUsers = [];
+
+async function loadAllUsers() {
+    try {
+        const data = await Janet.API.get('/admin/api/users');
+        allUsers = data.users;
+        filteredUsers = [...allUsers];
+        displayUsers();
+    } catch (error) {
+        document.getElementById('users-list').innerHTML = '<div class="alert alert-error">Failed to load users</div>';
+    }
+}
+
+async function searchUsers() {
+    const searchTerm = document.getElementById('user-search').value.toLowerCase().trim();
+    
+    if (!searchTerm) {
+        filteredUsers = [...allUsers];
+    } else {
+        filteredUsers = allUsers.filter(user => 
+            user.name.toLowerCase().includes(searchTerm)
+        );
+    }
+    
+    currentPage = 1;
+    displayUsers();
+}
+
+function applySorting() {
+    const sortBy = document.getElementById('sort-by').value;
+    const sortOrder = document.getElementById('sort-order').value;
+    
+    filteredUsers.sort((a, b) => {
+        let aVal, bVal;
+        
+        switch (sortBy) {
+            case 'points':
+                aVal = a.points;
+                bVal = b.points;
+                break;
+            case 'name':
+                aVal = a.name.toLowerCase();
+                bVal = b.name.toLowerCase();
+                break;
+            case 'transactions':
+                aVal = a.transactionCount || 0;
+                bVal = b.transactionCount || 0;
+                break;
+            default:
+                return 0;
+        }
+        
+        if (sortOrder === 'asc') {
+            return aVal > bVal ? 1 : -1;
+        } else {
+            return aVal < bVal ? 1 : -1;
+        }
+    });
+    
+    displayUsers();
+}
+
+function displayUsers() {
+    const startIndex = (currentPage - 1) * usersPerPage;
+    const endIndex = startIndex + usersPerPage;
+    const pageUsers = filteredUsers.slice(startIndex, endIndex);
+    
+    document.getElementById('users-list').innerHTML = `
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f8f9fa;">
+                    <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid #eee;">User</th>
+                    <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid #eee;">Points</th>
+                    <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid #eee;">Rank</th>
+                    <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid #eee;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${pageUsers.map((user, index) => `
+                    <tr style="border-bottom: 1px solid #eee;">
+                        <td style="padding: 0.75rem;">
+                            <strong>${user.name}</strong>
+                            ${user.isBlacklisted ? '<span style="background: #e74c3c; color: white; padding: 0.2rem 0.4rem; border-radius: 3px; font-size: 0.8rem; margin-left: 0.5rem;">Blacklisted</span>' : ''}
+                        </td>
+                        <td style="padding: 0.75rem;">${user.points}</td>
+                        <td style="padding: 0.75rem;">#${startIndex + index + 1}</td>
+                        <td style="padding: 0.75rem;">
+                            <button class="btn" style="padding: 0.25rem 0.5rem; margin-right: 0.25rem;" onclick="viewUserDetails('${user.name}')">View</button>
+                            <button class="btn" style="padding: 0.25rem 0.5rem; margin-right: 0.25rem;" onclick="editUser('${user.name}')">Edit</button>
+                            ${user.isBlacklisted ? 
+                                `<button class="btn btn-success" style="padding: 0.25rem 0.5rem;" onclick="toggleBlacklist('${user.name}', false)">Unblock</button>` :
+                                `<button class="btn btn-danger" style="padding: 0.25rem 0.5rem;" onclick="toggleBlacklist('${user.name}', true)">Block</button>`
+                            }
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+    
+    // Update pagination
+    const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
+    document.getElementById('pagination').innerHTML = `
+        <div style="display: flex; justify-content: center; align-items: center; gap: 1rem;">
+            <button class="btn" ${currentPage === 1 ? 'disabled' : ''} onclick="changePage(${currentPage - 1})">Previous</button>
+            <span>Page ${currentPage} of ${totalPages} (${filteredUsers.length} users)</span>
+            <button class="btn" ${currentPage === totalPages ? 'disabled' : ''} onclick="changePage(${currentPage + 1})">Next</button>
+        </div>
+    `;
+}
+
+function changePage(page) {
+    const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
+    if (page >= 1 && page <= totalPages) {
+        currentPage = page;
+        displayUsers();
+    }
+}
+
+async function viewUserDetails(username) {
+    try {
+        const data = await Janet.API.get(`/admin/api/users/${username}/details`);
+        
+        document.getElementById('modal-username').textContent = `${username} - Details`;
+        document.getElementById('modal-content').innerHTML = `
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                <div class="stat-card">
+                    <div class="stat-number">${data.points}</div>
+                    <div class="stat-label">Total Points</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${data.pointsGiven}</div>
+                    <div class="stat-label">Points Given</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${data.pointsReceived}</div>
+                    <div class="stat-label">Points Received</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">#${data.rank}</div>
+                    <div class="stat-label">Rank</div>
+                </div>
+            </div>
+            
+            <h3>Recent Transactions</h3>
+            <div style="max-height: 300px; overflow-y: auto;">
+                ${data.recentTransactions.map(t => `
+                    <div style="padding: 0.5rem; border-bottom: 1px solid #eee;">
+                        <strong>${t.from}</strong> → <strong>${t.to}</strong>: 
+                        ${t.points > 0 ? '+' : ''}${t.points} points
+                        ${t.reason ? `<em>for ${t.reason}</em>` : ''}
+                        <br>
+                        <small style="color: #666;">${new Date(t.timestamp).toLocaleString()}</small>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        
+        document.getElementById('user-modal').style.display = 'block';
+    } catch (error) {
+        Janet.UI.showAlert('Failed to load user details', 'error');
+    }
+}
+
+function closeUserModal() {
+    document.getElementById('user-modal').style.display = 'none';
+}
+
+async function toggleBlacklist(username, blacklist) {
+    try {
+        if (blacklist) {
+            await Janet.API.post('/admin/api/blacklist', { username });
+            Janet.UI.showAlert(`${username} has been blacklisted`);
+        } else {
+            await Janet.API.delete(`/admin/api/blacklist/${username}`);
+            Janet.UI.showAlert(`${username} has been removed from blacklist`);
+        }
+        loadAllUsers();
+    } catch (error) {
+        Janet.UI.showAlert('Failed to update blacklist', 'error');
+    }
+}
+
+async function adjustUserPoints() {
+    const username = document.getElementById('bulk-username').value.trim();
+    const points = parseInt(document.getElementById('bulk-points').value);
+    const reason = document.getElementById('bulk-reason').value.trim();
+    
+    if (!username || isNaN(points)) {
+        Janet.UI.showAlert('Username and points are required', 'error');
+        return;
+    }
+    
+    try {
+        await Janet.API.post('/admin/api/users/adjust-points', {
+            username,
+            points,
+            reason: reason || 'Admin adjustment'
+        });
+        
+        Janet.UI.showAlert(`Adjusted ${username}'s points by ${points > 0 ? '+' : ''}${points}`);
+        document.getElementById('bulk-username').value = '';
+        document.getElementById('bulk-points').value = '';
+        document.getElementById('bulk-reason').value = '';
+        loadAllUsers();
+    } catch (error) {
+        Janet.UI.showAlert('Failed to adjust points', 'error');
+    }
+}
+
+async function mergeUsers() {
+    const fromUser = document.getElementById('merge-from').value.trim();
+    const toUser = document.getElementById('merge-to').value.trim();
+    
+    if (!fromUser || !toUser) {
+        Janet.UI.showAlert('Both usernames are required', 'error');
+        return;
+    }
+    
+    if (fromUser === toUser) {
+        Janet.UI.showAlert('Cannot merge a user into themselves', 'error');
+        return;
+    }
+    
+    if (confirm(`Are you sure you want to merge ${fromUser} into ${toUser}? This cannot be undone.`)) {
+        try {
+            await Janet.API.post('/admin/api/users/merge', { fromUser, toUser });
+            Janet.UI.showAlert(`${fromUser} has been merged into ${toUser}`);
+            document.getElementById('merge-from').value = '';
+            document.getElementById('merge-to').value = '';
+            loadAllUsers();
+        } catch (error) {
+            Janet.UI.showAlert('Failed to merge users', 'error');
+        }
+    }
+}
+
+async function deleteUser() {
+    const username = document.getElementById('delete-username').value.trim();
+    
+    if (!username) {
+        Janet.UI.showAlert('Username is required', 'error');
+        return;
+    }
+    
+    const confirmation = prompt(`Type "${username}" to confirm deletion:`);
+    if (confirmation === username) {
+        try {
+            await Janet.API.delete(`/admin/api/users/${username}`);
+            Janet.UI.showAlert(`${username} has been deleted`);
+            document.getElementById('delete-username').value = '';
+            loadAllUsers();
+        } catch (error) {
+            Janet.UI.showAlert('Failed to delete user', 'error');
+        }
+    }
+}
+
+// Close modal when clicking outside
+document.getElementById('user-modal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeUserModal();
+    }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadAllUsers();
+});
+</script>
+{{end}}

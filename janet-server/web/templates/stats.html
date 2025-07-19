@@ -1,0 +1,85 @@
+{{define "content"}}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-number" id="total-users">-</div>
+        <div class="stat-label">Total Users</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number" id="total-points">-</div>
+        <div class="stat-label">Total Points</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number" id="total-transactions">-</div>
+        <div class="stat-label">Total Transactions</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number" id="positive-transactions">-</div>
+        <div class="stat-label">Positive Transactions</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number" id="negative-transactions">-</div>
+        <div class="stat-label">Negative Transactions</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number" id="avg-points-per-user">-</div>
+        <div class="stat-label">Avg Points Per User</div>
+    </div>
+</div>
+
+<div class="grid">
+    <div class="card">
+        <h2>Top Point Givers</h2>
+        <div id="top-givers">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Recent Activity</h2>
+        <div id="recent-activity">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        // Load detailed stats
+        const stats = await Janet.API.get('/api/stats/detailed');
+        
+        document.getElementById('total-users').textContent = stats.totalUsers;
+        document.getElementById('total-points').textContent = stats.totalPoints;
+        document.getElementById('total-transactions').textContent = stats.totalTransactions;
+        document.getElementById('positive-transactions').textContent = stats.positiveTransactions;
+        document.getElementById('negative-transactions').textContent = stats.negativeTransactions;
+        document.getElementById('avg-points-per-user').textContent = stats.avgPointsPerUser.toFixed(1);
+        
+        // Load top givers
+        const topGivers = await Janet.API.get('/api/stats/top-givers');
+        document.getElementById('top-givers').innerHTML = topGivers.map((giver, index) => `
+            <div style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #eee;">
+                <span>${index + 1}. ${giver.name}</span>
+                <span>${giver.pointsGiven} points given</span>
+            </div>
+        `).join('');
+        
+        // Load recent activity
+        const recentActivity = await Janet.API.get('/api/stats/recent-activity');
+        document.getElementById('recent-activity').innerHTML = recentActivity.map(activity => `
+            <div style="padding: 0.5rem 0; border-bottom: 1px solid #eee; font-size: 0.9rem;">
+                <strong>${activity.from}</strong> gave <strong>${activity.to}</strong> 
+                ${activity.points > 0 ? '+' : ''}${activity.points} points
+                ${activity.reason ? `<em>for ${activity.reason}</em>` : ''}
+                <br>
+                <small style="color: #666;">${new Date(activity.timestamp).toLocaleString()}</small>
+            </div>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Failed to load detailed stats:', error);
+        Janet.UI.showAlert('Failed to load statistics', 'error');
+    }
+});
+</script>
+{{end}}

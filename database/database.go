@@ -1,216 +1,369 @@
 package database
 
 import (
-	"database/sql"
-	"errors"
-	"strings"
 	"time"
-
-	"github.com/aybabtme/log"
-
-	// import the sqlite3 driver
-	_ "github.com/mattn/go-sqlite3"
 )
 
-// Config contains the necessary config options to
-// connect to an sqlite3 database.
-type Config struct {
-	Path string
-	Log  *log.Log
+// Ensure V2DB implements all repository interfaces
+var _ Database = (*V2DB)(nil)
+
+// Service composition - V2DB embeds all service functionality
+func (db *V2DB) transactionService() *TransactionService {
+	return NewTransactionService(db)
 }
 
-// A DB in an instance of a janet database.
-type DB struct {
-	Config *Config
-	SQL    *sql.DB
+func (db *V2DB) userService() *UserService {
+	return NewUserService(db)
 }
 
-// Points is a karma record containing info about
-// a karma operation.
-type Points struct {
-	From, To, Reason string
-	Points           int
+func (db *V2DB) emojiService() *EmojiService {
+	return NewEmojiService(db)
 }
 
-// Throwback is a karma operation that has happened
-type Throwback struct {
-	Points
-
-	Timestamp time.Time
+func (db *V2DB) statsService() *StatsService {
+	return NewStatsService(db)
 }
 
-// The Leaderboard lists the top X users.
-type Leaderboard []*User
-
-// A User is an entry in the Leaderboard.
-type User struct {
-	Name   string
-	Points int
+func (db *V2DB) summaryService() *SummaryService {
+	return NewSummaryService(db)
 }
 
-// ErrNoSuchUser is returned when a user lookup
-// is performed on a non-existent user
-var ErrNoSuchUser = errors.New("no such user")
-
-// New returns a new instance of a janet database
-// and initializes it
-func New(config *Config) (*DB, error) {
-	instance := &DB{
-		Config: config,
-	}
-
-	err := instance.Init()
-
-	if err != nil {
-		return nil, err
-	}
-
-	return instance, nil
+func (db *V2DB) backfillService() *BackfillService {
+	return NewBackfillService(db)
 }
 
-// Init initializes an sqlite3 database in order
-// for janet to be able to use it
-func (db *DB) Init() error {
-	sqlite, err := sql.Open("sqlite3", db.Config.Path)
-
-	if err != nil {
-		return err
-	}
-
-	db.SQL = sqlite
-	return db.createTable()
+func (db *V2DB) legacyService() *LegacyService {
+	return NewLegacyService(db)
 }
 
-func (db *DB) createTable() error {
-	schema := strings.Replace(
-		`create table if not exists karma (
-			^id^ integer primary key,
-			^from^ text not null,
-			^to^ text not null,
-			^points^ integer not null,
-			^reason^ text,
-			^timestamp^ text not null default (datetime('now'))
-		)`,
-		"^", "`", -1)
-
-	_, err := db.SQL.Exec(schema)
-	if err != nil {
-		return err
-	}
-
-	_, err = db.SQL.Exec("create index if not exists idx_to on karma(`to`);")
-	if err != nil {
-		return err
-	}
-
-	return nil
+// TransactionRepository implementation
+func (db *V2DB) InsertTransaction(tx *Transaction) error {
+	return db.transactionService().InsertTransaction(tx)
 }
 
-// InsertPoints inserts a Points object into the database.
-func (db *DB) InsertPoints(points *Points) error {
-	stmt, err := db.SQL.Prepare("insert into karma (`from`, `to`, `reason`, `points`) values(?, ?, ?, ?)")
-
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	_, err = stmt.Exec(points.From, points.To, points.Reason, points.Points)
-
-	return err
+// Recent activity methods
+func (db *V2DB) GetRecentActivity(limit int) ([]*Transaction, error) {
+	return db.transactionService().GetRecentActivity(limit)
 }
 
-// GetUser returns info about a user.
-func (db *DB) GetUser(name string) (*User, error) {
-	stmt, err := db.SQL.Prepare("select count(`to`) as `count` from karma where `to` = ?")
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-
-	user := &User{
-		Name: name,
-	}
-
-	var userExists int
-	err = stmt.QueryRow(user.Name).Scan(&userExists)
-	if err != nil {
-		return nil, err
-	}
-	if userExists == 0 {
-		return nil, ErrNoSuchUser
-	}
-
-	stmt, err = db.SQL.Prepare("select sum(`points`) as `points` from karma where `to` = ?")
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-
-	err = stmt.QueryRow(user.Name).Scan(&user.Points)
-	if err != nil {
-		return nil, err
-	}
-
-	return user, nil
+func (db *V2DB) GetRecentActivityByCurrentYear(limit int) ([]*Transaction, error) {
+	return db.transactionService().GetRecentActivityByCurrentYear(limit)
 }
 
-// GetLeaderboard returns the leaderboard with the top X users.
-func (db *DB) GetLeaderboard(limit int) (Leaderboard, error) {
-	rows, err := db.SQL.Query("select `to`, sum(`points`) as `points` from karma group by `to` order by `points` desc limit ?", limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var leaderboard Leaderboard
-	for rows.Next() {
-		user := &User{}
-		err := rows.Scan(&user.Name, &user.Points)
-
-		if err != nil {
-			return nil, err
-		}
-
-		leaderboard = append(leaderboard, user)
-	}
-
-	return leaderboard, nil
+func (db *V2DB) GetRecentActivityByYear(limit int, year int) ([]*Transaction, error) {
+	return db.transactionService().GetRecentActivityByYear(limit, year)
 }
 
-// GetTotalPoints returns the amount of points given or taken
-// for all users.
-func (db *DB) GetTotalPoints() (int, error) {
-	var res int
-	err := db.SQL.QueryRow("select sum(abs(`points`)) from karma").Scan(&res)
-
-	if err != nil {
-		return 0, err
-	}
-
-	return res, nil
+func (db *V2DB) GetRecentActivityCumulative(limit int) ([]*Transaction, error) {
+	return db.transactionService().GetRecentActivityCumulative(limit)
 }
 
-// GetThrowback returns a random karma operation on a specific user
-func (db *DB) GetThrowback(user string) (*Throwback, error) {
-	var (
-		record    = &Throwback{}
-		timestamp = ""
-	)
+// User transactions methods
+func (db *V2DB) GetTransactionsByUser(username string) ([]*Transaction, error) {
+	return db.transactionService().GetTransactionsByUserByCurrentYear(username)
+}
 
-	err := db.SQL.QueryRow("select `from`, `to`, `reason`, `points`, `timestamp` from karma where `to` = ? and `id` >= (abs(random()) % (select max(`id`) from karma)) limit 1", user).Scan(&record.From, &record.To, &record.Reason, &record.Points.Points, &timestamp)
-	switch err {
-	case nil:
-	case sql.ErrNoRows:
-		return nil, ErrNoSuchUser
-	default:
-		return nil, err
-	}
+func (db *V2DB) GetTransactionsByUserByCurrentYear(username string) ([]*Transaction, error) {
+	return db.transactionService().GetTransactionsByUserByCurrentYear(username)
+}
 
-	record.Timestamp, err = time.Parse("2006-01-02 15:04:05", timestamp)
-	if err != nil {
-		return nil, err
-	}
+func (db *V2DB) GetTransactionsByUserByYear(username string, year int) ([]*Transaction, error) {
+	return db.transactionService().GetTransactionsByUserByYear(username, year)
+}
 
-	return record, nil
+func (db *V2DB) GetTransactionsByUserCumulative(username string) ([]*Transaction, error) {
+	return db.transactionService().GetTransactionsByUserCumulative(username)
+}
+
+// Transaction count methods
+func (db *V2DB) GetTotalTransactions() (int, error) {
+	return db.transactionService().GetTotalTransactionsByCurrentYear()
+}
+
+func (db *V2DB) GetTotalTransactionsByCurrentYear() (int, error) {
+	return db.transactionService().GetTotalTransactionsByCurrentYear()
+}
+
+func (db *V2DB) GetTotalTransactionsByYear(year int) (int, error) {
+	return db.transactionService().GetTotalTransactionsByYear(year)
+}
+
+func (db *V2DB) GetTotalTransactionsCumulative() (int, error) {
+	return db.transactionService().GetTotalTransactionsCumulative()
+}
+
+func (db *V2DB) GetPositiveTransactions() (int, error) {
+	return db.transactionService().GetPositiveTransactionsByCurrentYear()
+}
+
+func (db *V2DB) GetPositiveTransactionsByCurrentYear() (int, error) {
+	return db.transactionService().GetPositiveTransactionsByCurrentYear()
+}
+
+func (db *V2DB) GetPositiveTransactionsByYear(year int) (int, error) {
+	return db.transactionService().GetPositiveTransactionsByYear(year)
+}
+
+func (db *V2DB) GetPositiveTransactionsCumulative() (int, error) {
+	return db.transactionService().GetPositiveTransactionsCumulative()
+}
+
+func (db *V2DB) GetNegativeTransactions() (int, error) {
+	return db.transactionService().GetNegativeTransactionsByCurrentYear()
+}
+
+func (db *V2DB) GetNegativeTransactionsByCurrentYear() (int, error) {
+	return db.transactionService().GetNegativeTransactionsByCurrentYear()
+}
+
+func (db *V2DB) GetNegativeTransactionsByYear(year int) (int, error) {
+	return db.transactionService().GetNegativeTransactionsByYear(year)
+}
+
+func (db *V2DB) GetNegativeTransactionsCumulative() (int, error) {
+	return db.transactionService().GetNegativeTransactionsCumulative()
+}
+
+// UserRepository implementation
+
+// User data methods
+func (db *V2DB) GetUser(username string) (*UserSummary, error) {
+	return db.userService().GetUser(username)
+}
+
+func (db *V2DB) GetUserByCurrentYear(username string) (*UserSummary, error) {
+	return db.userService().GetUserByCurrentYear(username)
+}
+
+func (db *V2DB) GetUserByYear(username string, year int) (*UserSummary, error) {
+	return db.userService().GetUserByYear(username, year)
+}
+
+func (db *V2DB) GetUserCumulative(username string) (*UserSummary, error) {
+	return db.userService().GetUserCumulative(username)
+}
+
+// Leaderboard methods
+func (db *V2DB) GetLeaderboard(limit int) ([]*UserSummary, error) {
+	return db.userService().GetLeaderboard(limit)
+}
+
+func (db *V2DB) GetLeaderboardByCurrentYear(limit int) ([]*UserSummary, error) {
+	return db.userService().GetLeaderboardByCurrentYear(limit)
+}
+
+func (db *V2DB) GetLeaderboardByYear(year, limit int) ([]*UserSummary, error) {
+	return db.userService().GetYearlyLeaderboard(year, limit)
+}
+
+func (db *V2DB) GetLeaderboardCumulative(limit int) ([]*UserSummary, error) {
+	return db.userService().GetLeaderboardCumulative(limit)
+}
+
+// Legacy methods for backward compatibility
+func (db *V2DB) GetCurrentLeaderboard(limit int) ([]*UserSummary, error) {
+	return db.userService().GetCurrentLeaderboard(limit)
+}
+
+func (db *V2DB) GetYearlyLeaderboard(year, limit int) ([]*UserSummary, error) {
+	return db.userService().GetYearlyLeaderboard(year, limit)
+}
+
+// Top givers methods
+func (db *V2DB) GetTopGivers(limit int) ([]*UserSummary, error) {
+	return db.userService().GetTopGiversByCurrentYear(limit)
+}
+
+func (db *V2DB) GetTopGiversByCurrentYear(limit int) ([]*UserSummary, error) {
+	return db.userService().GetTopGiversByCurrentYear(limit)
+}
+
+func (db *V2DB) GetTopGiversByYear(limit int, year int) ([]*UserSummary, error) {
+	return db.userService().GetTopGiversByYear(limit, year)
+}
+
+func (db *V2DB) GetTopGiversCumulative(limit int) ([]*UserSummary, error) {
+	return db.userService().GetTopGiversCumulative(limit)
+}
+
+// User count methods
+func (db *V2DB) GetTotalUsers() (int, error) {
+	return db.userService().GetTotalUsersByCurrentYear()
+}
+
+func (db *V2DB) GetTotalUsersByCurrentYear() (int, error) {
+	return db.userService().GetTotalUsersByCurrentYear()
+}
+
+func (db *V2DB) GetTotalUsersByYear(year int) (int, error) {
+	return db.userService().GetTotalUsersByYear(year)
+}
+
+func (db *V2DB) GetTotalUsersCumulative() (int, error) {
+	return db.userService().GetTotalUsersCumulative()
+}
+
+// EmojiRepository implementation
+
+// Top emojis methods
+func (db *V2DB) GetTopEmojis(limit int) ([]*EmojiStats, error) {
+	return db.emojiService().GetTopEmojis(limit)
+}
+
+func (db *V2DB) GetTopEmojisByCurrentYear(limit int) ([]*EmojiStats, error) {
+	return db.emojiService().GetTopEmojisByCurrentYear(limit)
+}
+
+func (db *V2DB) GetTopEmojisByYear(year, limit int) ([]*EmojiStats, error) {
+	return db.emojiService().GetTopEmojisByYear(year, limit)
+}
+
+func (db *V2DB) GetTopEmojisCumulative(limit int) ([]*EmojiStats, error) {
+	return db.emojiService().GetTopEmojisCumulative(limit)
+}
+
+// Emoji usage methods
+func (db *V2DB) GetTotalEmojiUsage() (int, error) {
+	return db.emojiService().GetTotalEmojiUsage()
+}
+
+func (db *V2DB) GetTotalEmojiUsageByCurrentYear() (int, error) {
+	return db.emojiService().GetTotalEmojiUsageByCurrentYear()
+}
+
+func (db *V2DB) GetTotalEmojiUsageByYear(year int) (int, error) {
+	return db.emojiService().GetTotalEmojiUsageByYear(year)
+}
+
+func (db *V2DB) GetTotalEmojiUsageCumulative() (int, error) {
+	return db.emojiService().GetTotalEmojiUsageCumulative()
+}
+
+// Emoji leaderboard methods
+func (db *V2DB) GetEmojiLeaderboard(emojiName string) ([]*EmojiLeaderboard, error) {
+	return db.emojiService().GetEmojiLeaderboardByCurrentYear(emojiName)
+}
+
+func (db *V2DB) GetEmojiLeaderboardByCurrentYear(emojiName string) ([]*EmojiLeaderboard, error) {
+	return db.emojiService().GetEmojiLeaderboardByCurrentYear(emojiName)
+}
+
+func (db *V2DB) GetEmojiLeaderboardByYear(emojiName string, year int) ([]*EmojiLeaderboard, error) {
+	return db.emojiService().GetEmojiLeaderboardByYear(emojiName, year)
+}
+
+func (db *V2DB) GetEmojiLeaderboardCumulative(emojiName string) ([]*EmojiLeaderboard, error) {
+	return db.emojiService().GetEmojiLeaderboardCumulative(emojiName)
+}
+
+// StatsRepository implementation
+
+// Total points methods
+func (db *V2DB) GetTotalPoints() (int, error) {
+	return db.statsService().GetTotalPointsByCurrentYear()
+}
+
+func (db *V2DB) GetTotalPointsByCurrentYear() (int, error) {
+	return db.statsService().GetTotalPointsByCurrentYear()
+}
+
+func (db *V2DB) GetTotalPointsByYear(year int) (int, error) {
+	return db.statsService().GetTotalPointsByYear(year)
+}
+
+func (db *V2DB) GetTotalPointsCumulative() (int, error) {
+	return db.statsService().GetTotalPointsCumulative()
+}
+
+// Monthly stats methods
+func (db *V2DB) GetMonthlyStats() ([]*MonthlyStats, error) {
+	return db.statsService().GetMonthlyStatsByCurrentYear()
+}
+
+func (db *V2DB) GetMonthlyStatsByCurrentYear() ([]*MonthlyStats, error) {
+	return db.statsService().GetMonthlyStatsByCurrentYear()
+}
+
+func (db *V2DB) GetMonthlyStatsByYear(year int) ([]*MonthlyStats, error) {
+	return db.statsService().GetMonthlyStatsByYear(year)
+}
+
+// Points over time methods
+func (db *V2DB) GetPointsOverTimeMonthly() ([]map[string]interface{}, error) {
+	return db.statsService().GetPointsOverTimeMonthlyByCurrentYear()
+}
+
+func (db *V2DB) GetPointsOverTimeMonthlyByCurrentYear() ([]map[string]interface{}, error) {
+	return db.statsService().GetPointsOverTimeMonthlyByCurrentYear()
+}
+
+func (db *V2DB) GetPointsOverTimeMonthlyByYear(year int) ([]map[string]interface{}, error) {
+	return db.statsService().GetPointsOverTimeMonthlyByYear(year)
+}
+
+// Activity timeline methods
+func (db *V2DB) GetActivityTimeline() ([]map[string]interface{}, error) {
+	return db.statsService().GetActivityTimelineByCurrentYear()
+}
+
+func (db *V2DB) GetActivityTimelineByCurrentYear() ([]map[string]interface{}, error) {
+	return db.statsService().GetActivityTimelineByCurrentYear()
+}
+
+func (db *V2DB) GetActivityTimelineByYear(year int) ([]map[string]interface{}, error) {
+	return db.statsService().GetActivityTimelineByYear(year)
+}
+
+// Karma distribution methods
+func (db *V2DB) GetKarmaDistribution() ([]map[string]interface{}, error) {
+	return db.statsService().GetKarmaDistributionByCurrentYear()
+}
+
+func (db *V2DB) GetKarmaDistributionByCurrentYear() ([]map[string]interface{}, error) {
+	return db.statsService().GetKarmaDistributionByCurrentYear()
+}
+
+func (db *V2DB) GetKarmaDistributionByYear(year int) ([]map[string]interface{}, error) {
+	return db.statsService().GetKarmaDistributionByYear(year)
+}
+
+func (db *V2DB) GetKarmaDistributionCumulative() ([]map[string]interface{}, error) {
+	return db.statsService().GetKarmaDistributionCumulative()
+}
+
+// Utility methods
+func (db *V2DB) GetAvailableYears() ([]int, error) {
+	return db.statsService().GetAvailableYears()
+}
+
+// SummaryRepository implementation
+func (db *V2DB) RebuildSummaryTables() error {
+	return db.summaryService().RebuildSummaryTables()
+}
+
+func (db *V2DB) UpdateSummaryTables(toUser, fromUser string, year int) error {
+	return db.summaryService().UpdateSummaryTables(toUser, fromUser, year)
+}
+
+// BackfillRepository implementation
+
+func (db *V2DB) InsertBackfillRecord(record *BackfillRecord) error {
+	return db.backfillService().InsertBackfillRecord(record)
+}
+
+func (db *V2DB) GetBackfillStats(startTime, endTime time.Time) (*BackfillStats, error) {
+	return db.backfillService().GetBackfillStats(startTime, endTime)
+}
+
+// LegacyRepository implementation
+func (db *V2DB) InsertPoints(points *Points) error {
+	return db.legacyService().InsertPoints(points)
+}
+
+func (db *V2DB) GetLegacyLeaderboard(limit int) (Leaderboard, error) {
+	return db.legacyService().GetLeaderboard(limit)
+}
+
+func (db *V2DB) GetThrowback(user string) (*Throwback, error) {
+	return db.legacyService().GetThrowback(user)
 }

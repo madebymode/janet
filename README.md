@@ -11,28 +11,29 @@ janet is a Slack bot that listens for and performs karma operations (aka upvotes
 - upvote a user: `<user>++`
 - downvote a user: `<user>--`
 - add/subtract multiple points at once:
-  - `<user>++` - 1 point
-  - `<user>+++` - 2 points
-  - and so on, limited to `maxpoints` points (see the **Usage** section below)
+    - `<user>++` - 1 point
+    - `<user>+++` - 2 points
+    - and so on, limited to `maxpoints` points (see the **Usage** section below)
 - add a message/reason for a karma operation:
-  - `<user>++ for <message>`; or
-  - `<user>++ <message>`
+    - `<user>++ for <message>`; or
+    - `<user>++ <message>`
 - query a user's current points: `<user>==`
 - upvote/downvote a user by adding reactjis to their message
 - [motivate.im](http://motivate.im/) support:
-  - `?m <user>`
-  - `!m <user>`
+    - `?m <user>`
+    - `!m <user>`
 - leaderboard:
-  - `<karma|janet> <leaderboard|top|highscores>`
-  - to list more than `leaderboardlimit` (see the **Usage** section below), you may append the number of users to list
-    to the command above. e.g. `janet top 20`
+    - `<karma|janet> <leaderboard|top|highscores>`
+    - to list more than `leaderboardlimit` (see the **Usage** section below), you may append the number of users to list
+      to the command above. e.g. `janet top 20`
 - user aliases:
-  - it is possible to alias different usernames to one main username by passing the aliases as a cli option to the janet
-    binary. syntax: `-alias main++alias1++alias2++...++aliasN`
-  - repeat the option for every alias that you want to configure
+    - it is possible to alias different usernames to one main username by passing the aliases as a cli option to the
+      janet
+      binary. syntax: `-alias main++alias1++alias2++...++aliasN`
+    - repeat the option for every alias that you want to configure
 - karma throwback:
-  - `<karma|janet> throwback [user]`
-  - returns a random karma operation that happened to a specific user.
+    - `<karma|janet> throwback [user]`
+    - returns a random karma operation that happened to a specific user.
 
 **note:** `<user>` does not have to be a Slack username. However, janet supports Slack autocompletion and so the
 following messages are parsed correctly:
@@ -64,27 +65,53 @@ following messages are parsed correctly:
 2. `cd janet`
 2. install dependencies
 1. run `go mod download`
-3. run `go build` in `/cmd/janet` and `/cmd/janetctl`
-2. `cd cmd/janet`
+3. run `go build` in `/janet-server` and `/cmd/janetctl`  
+2. `cd janet-server`
 3. `go build`
-4. `cd ../janetctl`
+4. `cd ../cmd/janetctl`
 5. `go build`
 
 ## Usage
 
-1. add a **Slack Bot** integration: `https://team.slack.com/apps/A0F7YS25R-bots`. an avatar is
-   available [here](/avatar.png).
-2. invite `janet` to any existing channels and all future channels (this is a limitation of Slack's bot API,
-   unfortunately)
-3. run `janet`. the following options are supported. you can use environment variables as well, but any CLI options you
-   pass will take precedence.
+### Modern Deployment (Recommended) - Separated Services
+
+The recommended way to run Janet is using Docker Compose with separated services for better reliability and scaling:
+
+1. **Setup Slack App**: Create a Slack app with Bot Token and Socket Mode enabled
+2. **Configure Environment**: Copy `.env.example` to `.env` and set your tokens:
+   ```bash
+   JANET_SLACK_TOKEN=xoxb-your-bot-token
+   JANET_SLACK_SOCKET_TOKEN=xapp-your-socket-token  
+   JANET_GOOD_PLACE_JUDGE_BOT_ID=your-bot-user-id
+   JANET_WEB_PASSWORD=your-admin-password
+   ```
+3. **Run with Docker**: 
+   ```bash
+   docker-compose up -d
+   ```
+
+This will start:
+- 🤖 **Janet bot** (dedicated service for Slack interactions)
+- 🌐 **Web UI** (admin interface at http://localhost:8080)
+- 🗄️ **PostgreSQL database** (with automatic migrations)
+- 🔄 **Migration service** (one-time database setup)
+
+### Benefits of Separated Services
+- ✅ **Independent scaling** - Scale bot and web UI separately
+- ✅ **Better reliability** - If one service fails, the other continues
+- ✅ **Easier maintenance** - Update/restart services independently
+- ✅ **Resource optimization** - Right-sized containers for each purpose
+
+### Legacy Manual Deployment
+
+For manual deployment or development, you can still build and run the components individually:
 
 | option                                                                                                                        | required?                        | description                                                                                                                                    | default        | env var               |
 |-------------------------------------------------------------------------------------------------------------------------------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|----------------|-----------------------|
 | `-token string`                                                                                                               | **                               
  yes**                                                                                                                         | slack RTM token                  |                                                                                                                                                | `KB_TOKEN`     |
 | `-debug=bool`                                                                                                                 | no                               | set debug mode                                                                                                                                 | `false`        | `KB_DEBUG`            |
-| `-db string`                                                                                                                  | no                               | path to sqlite database                                                                                                                        | `./db.sqlite3` | `KB_DB`               |
+| `-db string`                                                                                                                  | no                               | PostgreSQL connection string                                                                                                                   | `postgres://user:password@host:port/database?sslmode=disable` | `KB_DB`               |
 | `-leaderboardlimit int`                                                                                                       | no                               | the default amount of users to list in the leaderboard                                                                                         | `10`           | `KB_LEADERBOARDLIMIT` |
 | `-maxpoints int`                                                                                                              | no                               | the maximum amount of points that users can give/take at once                                                                                  | `6`            | `KB_MAXPOINTS`        |
 | `-motivate=bool`                                                                                                              | no                               | toggle [motivate.im](http://motivate.im/) support                                                                                              | `true`         | `KB_MOTIVATE`         |

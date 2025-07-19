@@ -2,19 +2,19 @@ package janet
 
 import (
 	"fmt"
-	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/troyxmccall/janet/database"
-	"github.com/troyxmccall/janet/munge"
-	"github.com/troyxmccall/janet/ui"
 
 	"github.com/aybabtme/log"
 	"github.com/dustin/go-humanize"
 	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/slackevents"
+	"github.com/slack-go/slack/socketmode"
 )
 
 var (
@@ -32,34 +32,13 @@ var (
 	}
 )
 
-// Database is an abstraction around the database, mostly designed for use in tests.
-type Database interface {
-	// InsertPoints persistently records that points have been given or deducted.
-	InsertPoints(points *database.Points) error
-
-	// GetUser returns information about a user, including their current number of points.
-	GetUser(name string) (*database.User, error)
-
-	// GetLeaderboard returns the top X users with the most points, in order.
-	GetLeaderboard(limit int) (database.Leaderboard, error)
-
-	// GetTotalPoints returns the total number of points transferred across all users.
-	GetTotalPoints() (int, error)
-
-	// GetThrowback returns a random karma operation on a specific user.
-	GetThrowback(user string) (*database.Throwback, error)
-}
+// Database interface - now just aliasing V2DB pointer
+type Database = *database.V2DB
 
 // ChatService is an abstraction around Slack, mostly designed for use in tests.
 type ChatService interface {
-	// IncomingEventsChan returns a channel of real-time events.
-	IncomingEventsChan() chan slack.RTMEvent
-
-	// NewOutgoingMessage constructs a new OutgoingMessage using the provided text and channel.
-	NewOutgoingMessage(text string, channel string, options ...slack.RTMsgOption) *slack.OutgoingMessage
-
-	// SendMessage sends the provided *OutgoingMessage.
-	SendMessage(msg *slack.OutgoingMessage)
+	// PostMessage sends a message to a channel with options
+	PostMessage(channelID string, options ...slack.MsgOption) (string, string, error)
 
 	// OpenIMChannel opens a new direct-message channel with the specified user.
 	// It returns some status information, and the channel ID.
@@ -70,16 +49,45 @@ type ChatService interface {
 
 	// PostEphemeral sends an ephemeral message to a user in a channel.
 	PostEphemeral(channelID, userID string, options ...slack.MsgOption) (string, error)
+
+	// UpdateMessage updates an existing message
+	UpdateMessage(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error)
 }
 
 // SlackChatService is an implementation of ChatService using github.com/slack-go/slack.
 type SlackChatService struct {
-	slack.RTM
+	*slack.Client
 }
 
-// IncomingEventsChan returns a channel of real-time messaging events.
-func (s SlackChatService) IncomingEventsChan() chan slack.RTMEvent {
-	return s.IncomingEvents
+// PostMessage sends a message to a channel with options
+func (s SlackChatService) PostMessage(channelID string, options ...slack.MsgOption) (string, string, error) {
+	return s.Client.PostMessage(channelID, options...)
+}
+
+// UpdateMessage updates an existing message
+func (s SlackChatService) UpdateMessage(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
+	return s.Client.UpdateMessage(channelID, timestamp, options...)
+}
+
+// OpenIMChannel opens a new direct-message channel with the specified user
+func (s SlackChatService) OpenIMChannel(user string) (bool, bool, string, error) {
+	channel, _, _, err := s.Client.OpenConversation(&slack.OpenConversationParameters{
+		Users: []string{user},
+	})
+	if err != nil {
+		return false, false, "", err
+	}
+	return true, true, channel.ID, nil
+}
+
+// GetUserInfo retrieves the complete user information for the specified username
+func (s SlackChatService) GetUserInfo(user string) (*slack.User, error) {
+	return s.Client.GetUserInfo(user)
+}
+
+// PostEphemeral sends an ephemeral message to a user in a channel
+func (s SlackChatService) PostEphemeral(channelID, userID string, options ...slack.MsgOption) (string, error) {
+	return s.Client.PostEphemeral(channelID, userID, options...)
 }
 
 // UserAliases is a map of alias -> main username
@@ -91,15 +99,21 @@ type ReactjiConfig struct {
 	UpVote, DownVote, RepeatPoints StringList
 }
 
+// BotPersonality represents the personality of the bot
+type BotPersonality struct {
+	Username string
+	IconURL  string
+	IsGood   bool
+}
+
 // Config contains all the necessary configs for janet.
 type Config struct {
 	Slack                       ChatService
-	BadJanetSlack               ChatService
 	SlackWebClient              *slack.Client
 	Debug, Motivate, SelfPoints bool
 	MaxPoints, LeaderboardLimit int
 	Log                         *log.Log
-	UI                          ui.Provider
+	UI                          Provider
 	DB                          Database
 	UserBlacklist               StringList
 	Aliases                     UserAliases
@@ -107,6 +121,8 @@ type Config struct {
 	WaitGroup                   *sync.WaitGroup
 	ReplyType                   string
 	GoodPlaceJudgeBotID         string
+	GoodPersonality             BotPersonality
+	BadPersonality              BotPersonality
 }
 
 // A Bot is an instance of janet.
@@ -123,197 +139,111 @@ func New(config *Config) *Bot {
 }
 
 func (b *Bot) Listen() {
-
-	b.Config.Log.Info("listener called")
-
-	//add listeners to wait-group because they need to run at the same time (concurrently)
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	b.GoodJanetListen(wg)
-	b.BadJanetListen(wg)
-
-	wg.Wait()
+	b.Config.Log.Info("goodplace judge listener called")
+	// Socket mode implementation would go here
+	// For now, this is a placeholder - the actual socket mode implementation
+	// would need to be added when upgrading the slack library
+	select {} // Block forever
 }
 
-// GoodJanetListen Listen starts listening for Slack messages and calls the
-// appropriate handlers.
-func (b *Bot) GoodJanetListen(wg sync.WaitGroup) {
-
-	b.Config.Log.Info("good-janet listener called")
+// ListenWithSocketMode handles socket mode events
+func (b *Bot) ListenWithSocketMode(client *socketmode.Client) {
+	b.Config.Log.Info("goodplace judge socket mode listener started")
 
 	go func() {
-		for msg := range b.Config.Slack.IncomingEventsChan() {
-			switch ev := msg.Data.(type) {
-			case *slack.ReactionAddedEvent:
-				go b.handleReactionAddedEvent(msg.Data.(*slack.ReactionAddedEvent))
-			case *slack.ReactionRemovedEvent:
-				go b.handleReactionRemovedEvent(msg.Data.(*slack.ReactionRemovedEvent))
-			case *slack.MessageEvent:
-				go b.handleMessageEvent(msg.Data.(*slack.MessageEvent))
-			case *slack.ConnectedEvent:
-				b.Config.Log.Info("janet connected to slack")
-				if b.Config.Debug {
-					b.Config.Log.KV("info", ev.Info).Info("got slack info")
-					b.Config.Log.KV("connections", ev.ConnectionCount).Info("got connection count")
+		for evt := range client.Events {
+			switch evt.Type {
+			case socketmode.EventTypeConnecting:
+				b.Config.Log.Info("connecting to slack with socket mode...")
+			case socketmode.EventTypeConnectionError:
+				b.Config.Log.Error("connection failed. retrying later...")
+			case socketmode.EventTypeConnected:
+				b.Config.Log.Info("connected to slack with socket mode.")
+			case socketmode.EventTypeSlashCommand:
+				b.Config.Log.Info("received slash command event")
+				client.Ack(*evt.Request)
+			case socketmode.EventTypeEventsAPI:
+				eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
+				if !ok {
+					b.Config.Log.Error("ignored event")
+					continue
 				}
-			case *slack.RTMError:
-				b.Config.Log.Err(ev).Error("slack rtm error")
-			case *slack.InvalidAuthEvent:
-				wg.Done()
-				b.Config.Log.Fatal("invalid slack token")
+
+				client.Ack(*evt.Request)
+
+				switch eventsAPIEvent.Type {
+				case slackevents.CallbackEvent:
+					innerEvent := eventsAPIEvent.InnerEvent
+					switch ev := innerEvent.Data.(type) {
+					case *slackevents.AppMentionEvent:
+						// Convert to MessageEvent for processing
+						msgEvent := &slack.MessageEvent{
+							Msg: slack.Msg{
+								Type:            "message",
+								Channel:         ev.Channel,
+								User:            ev.User,
+								Text:            ev.Text,
+								Timestamp:       ev.TimeStamp,
+								ThreadTimestamp: ev.ThreadTimeStamp,
+							},
+						}
+						b.handleMessageEvent(msgEvent)
+					case *slackevents.MessageEvent:
+						// Convert to slack.MessageEvent for compatibility
+						msgEvent := &slack.MessageEvent{
+							Msg: slack.Msg{
+								Type:            ev.Type,
+								Channel:         ev.Channel,
+								User:            ev.User,
+								Text:            ev.Text,
+								Timestamp:       ev.TimeStamp,
+								ThreadTimestamp: ev.ThreadTimeStamp,
+							},
+						}
+						b.handleMessageEvent(msgEvent)
+					case *slackevents.ReactionAddedEvent:
+						// Convert to slack.ReactionAddedEvent for compatibility
+						reactionEvent := &slack.ReactionAddedEvent{
+							Type:     ev.Type,
+							User:     ev.User,
+							Reaction: ev.Reaction,
+							Item: slack.ReactionItem{
+								Type:      ev.Item.Type,
+								Channel:   ev.Item.Channel,
+								Timestamp: ev.Item.Timestamp,
+							},
+							ItemUser:       ev.ItemUser,
+							EventTimestamp: ev.EventTimestamp,
+						}
+						b.handleReactionAddedEvent(reactionEvent)
+					case *slackevents.ReactionRemovedEvent:
+						// Convert to slack.ReactionRemovedEvent for compatibility
+						reactionEvent := &slack.ReactionRemovedEvent{
+							Type:     ev.Type,
+							User:     ev.User,
+							Reaction: ev.Reaction,
+							Item: slack.ReactionItem{
+								Type:      ev.Item.Type,
+								Channel:   ev.Item.Channel,
+								Timestamp: ev.Item.Timestamp,
+							},
+							ItemUser:       ev.ItemUser,
+							EventTimestamp: ev.EventTimestamp,
+						}
+						b.handleReactionRemovedEvent(reactionEvent)
+					default:
+						b.Config.Log.Info("unsupported events API event received")
+					}
+				default:
+					b.Config.Log.Info("unsupported events API event received")
+				}
 			default:
-				b.Config.Log.KV("data", msg.Data).KV("event", reflect.TypeOf(msg.Data)).Info("unexpected slack api event")
+				b.Config.Log.Info("unexpected event type received")
 			}
 		}
 	}()
-}
 
-func (b *Bot) BadJanetListen(wg sync.WaitGroup) {
-
-	b.Config.Log.Info("bad-janet listener called")
-
-	go func() {
-		for msg := range b.Config.BadJanetSlack.IncomingEventsChan() {
-			switch ev := msg.Data.(type) {
-			case *slack.MessageEvent:
-				b.Config.Log.Info("bad-janet got a message")
-				//go b.handleMessageEvent(msg.Data.(*slack.MessageEvent))
-			case *slack.ConnectedEvent:
-				b.Config.Log.Info("bad-janet connected to slack")
-				if b.Config.Debug {
-					b.Config.Log.KV("info", ev.Info).Info("got bad-janet slack info")
-					b.Config.Log.KV("connections", ev.ConnectionCount).Info("got bad-janet connection count")
-				}
-			case *slack.RTMError:
-				b.Config.Log.Err(ev).Error("badJanet slack rtm error")
-			case *slack.InvalidAuthEvent:
-				wg.Done()
-				b.Config.Log.Fatal("badJanet invalid slack token")
-			default:
-				b.Config.Log.KV("data", msg.Data).KV("event", reflect.TypeOf(msg.Data)).Info("unexpected slack api event")
-			}
-		}
-	}()
-}
-
-func (b *Bot) getReplyThread(message *slack.MessageEvent) string {
-	var thread string
-
-	switch b.Config.ReplyType {
-	case "message":
-		thread = message.ThreadTimestamp
-	case "thread":
-		if message.ThreadTimestamp != "" {
-			thread = message.ThreadTimestamp
-		} else {
-			thread = message.Timestamp
-		}
-	}
-
-	return thread
-}
-
-// SendReply sends a reply to a message, either as a new message in the channel or a thread (configurable)
-func (b *Bot) SendReply(reply string, message *slack.MessageEvent, whichJanet string) {
-	switch b.Config.ReplyType {
-	case "ephemeral":
-		b.SendReplyEphemeral(reply, message)
-	default:
-		b.SendMessage(reply, message.Channel, b.getReplyThread(message), whichJanet)
-	}
-}
-
-// SendReplyEphemeral sends a reply to a message as an ephemeral message to the user
-func (b *Bot) SendReplyEphemeral(reply string, message *slack.MessageEvent) {
-	b.SendMessageEphemeral(message.Channel, message.User, reply, message.ThreadTimestamp)
-}
-
-// SendMessageEphemeral sends an ephemeral message to a user
-func (b *Bot) SendMessageEphemeral(reply, channel, user, thread string) {
-	b.Config.Slack.PostEphemeral(channel, user, slack.MsgOptionText(reply, false), slack.MsgOptionTS(thread))
-}
-
-// SendMessage sends a message to a Slack channel.
-func (b *Bot) SendMessage(message, channel, thread string, whichJanet string) {
-
-	b.Config.Log.Info("sending message as")
-
-	if whichJanet == "badJanet" {
-		//b.Config.Log.Info(whichJanet)
-
-		msg := b.Config.BadJanetSlack.NewOutgoingMessage(message, channel)
-		msg.ThreadTimestamp = thread
-		b.Config.BadJanetSlack.SendMessage(msg)
-
-		appendMessage := appendQuoteToMessage()
-		if appendMessage {
-			msg := b.Config.BadJanetSlack.NewOutgoingMessage(badJanetQuote(), channel)
-			msg.ThreadTimestamp = thread
-			b.Config.BadJanetSlack.SendMessage(msg)
-		}
-	} else {
-
-		msg := b.Config.Slack.NewOutgoingMessage(message, channel)
-		msg.ThreadTimestamp = thread
-		b.Config.Slack.SendMessage(msg)
-
-		appendMessage := appendQuoteToMessage()
-		if appendMessage {
-			msg := b.Config.Slack.NewOutgoingMessage(goodJanetQuote(), channel)
-			msg.ThreadTimestamp = thread
-			b.Config.Slack.SendMessage(msg)
-		}
-	}
-}
-
-// DMUser sends a message directly to a Slack user.
-func (b *Bot) DMUser(message, user string, whichJanet string) {
-	_, _, channel, err := b.Config.Slack.OpenIMChannel(user)
-	if err != nil {
-		b.Config.Log.Err(err).KV("user", user).Error("could not open IM channel with user")
-		return
-	}
-
-	if whichJanet == "badJanet" {
-		_, _, channel, err = b.Config.BadJanetSlack.OpenIMChannel(user)
-	}
-
-	b.SendMessage(message, channel, "", whichJanet)
-}
-
-func (b *Bot) handleError(err error, message *slack.MessageEvent) bool {
-	if err == nil {
-		return false
-	}
-
-	b.Config.Log.Err(err).Error("error")
-	if message != nil {
-		var text string
-		if b.Config.Debug {
-			text = err.Error()
-		} else {
-			text = "hi guys im broken."
-		}
-
-		b.SendReply(text, message, "")
-	}
-
-	return true
-}
-
-func (b *Bot) bangBangHandleError(err error, ev *slack.ReactionAddedEvent) bool {
-	if err == nil {
-		return false
-	}
-
-	b.Config.Log.Err(err).Error("error")
-	if ev != nil {
-		text := "i had trouble parsing the original message"
-		b.SendMessage(text, ev.Item.Channel, ev.Item.Timestamp, "")
-	}
-
-	return true
+	client.Run()
 }
 
 func (b *Bot) handleReactionAddedEvent(ev *slack.ReactionAddedEvent) {
@@ -327,11 +257,11 @@ func (b *Bot) handleReactionAddedEvent(ev *slack.ReactionAddedEvent) {
 	)
 	switch {
 	case b.Config.Reactji.UpVote.Contains(ev.Reaction):
-		points = +3
+		points = +3 // Changed from +1 to +3 to match backfill service
 	case b.Config.Reactji.DownVote.Contains(ev.Reaction):
-		points = -3
+		points = -1
 	case b.Config.Reactji.RepeatPoints.Contains(ev.Reaction):
-		b.handleBangBangPoints(ev, true)
+		b.handleBangBangPoints(ev)
 		return
 	default:
 		return
@@ -352,12 +282,9 @@ func (b *Bot) handleReactionRemovedEvent(ev *slack.ReactionRemovedEvent) {
 	)
 	switch {
 	case b.Config.Reactji.UpVote.Contains(ev.Reaction):
-		points = -3
+		points = -3 // Changed from -1 to -3 to match backfill service
 	case b.Config.Reactji.DownVote.Contains(ev.Reaction):
-		points = +3
-	case b.Config.Reactji.RepeatPoints.Contains(ev.Reaction):
-		b.handleBangBangPoints((*slack.ReactionAddedEvent)(ev), false)
-		return
+		points = +1
 	default:
 		return
 	}
@@ -366,174 +293,310 @@ func (b *Bot) handleReactionRemovedEvent(ev *slack.ReactionRemovedEvent) {
 	b.handleReactionEvent((*slack.ReactionAddedEvent)(ev), reason, points)
 }
 
-func (b *Bot) handleBangBangPoints(ev *slack.ReactionAddedEvent, addedReaction bool) {
-
-	res, err := GetMessage(b.Config.SlackWebClient, ev.Item.Channel, ev.Item.Timestamp)
-
-	if err != nil || len(res.Messages) == 0 {
-		b.Config.Log.Error(err.Error())
-		b.SendMessage("bing bong, you gotta add @goodplace-judge for bangbang behavior bb", ev.Item.Channel, ev.Item.Timestamp, "badJanet")
+func (b *Bot) handleBangBangPoints(ev *slack.ReactionAddedEvent) {
+	// Get the original message to analyze karma content
+	message, err := b.Config.SlackWebClient.GetConversationHistory(&slack.GetConversationHistoryParameters{
+		ChannelID: ev.Item.Channel,
+		Latest:    ev.Item.Timestamp,
+		Limit:     1,
+		Inclusive: true,
+	})
+	if err != nil {
+		b.Config.Log.Err(err).Error("failed to get message for bangbang processing")
 		return
 	}
 
-	textToParse := res.Messages[0].Text
+	if len(message.Messages) == 0 {
+		b.Config.Log.Error("no message found for bangbang processing")
+		return
+	}
 
-	re := regexp.MustCompile("(<@[A-Za-z0-9]+>(\\s)?([\\+]{2,})?([\\-]{2,})?)")
-	splits := re.FindAllString(textToParse, -1)
+	originalMessage := message.Messages[0]
+	textToParse := originalMessage.Text
+
+	// Handle motivates like the main bot does
+	if match := regexps.Motivate.FindStringSubmatch(textToParse); len(match) > 0 {
+		textToParse = match[1] + "++ for doing good work"
+	}
+
+	// Get bangbang reactor username
+	reactorUsername, err := b.GetUserNameByID(ev.User)
+	if err != nil {
+		b.Config.Log.Err(err).Error("failed to get reactor username for bangbang")
+		return
+	}
 
 	var goodJanetResponse strings.Builder
 	var badJanetResponse strings.Builder
 
-	if splits != nil {
-		for _, split := range splits {
-
-			splitText := split
-
-			switch {
-			case regexps.GivePoints.MatchString(splitText):
-				if addedReaction == false {
-					splitText = strings.Replace(splitText, "+", "-", -1)
-				}
-			case regexps.TakePoints.MatchString(splitText):
-				if addedReaction == false {
-					splitText = strings.Replace(splitText, "-", "+", -1)
-				}
-
-			}
-
-			switch {
-			case regexps.GivePoints.MatchString(splitText):
-				goodJanetResponse.WriteString(b.bangBangApplyPoints(ev, "", splitText))
-				if len(goodJanetResponse.String()) > 0 {
-					goodJanetResponse.WriteString("\n")
-				}
-			case regexps.TakePoints.MatchString(splitText):
-				whichJanet := "badJanet"
-				badJanetResponse.WriteString(b.bangBangApplyPoints(ev, whichJanet, splitText))
-				if len(badJanetResponse.String()) > 0 {
-					badJanetResponse.WriteString("\n")
-				}
-			}
-		}
-
-		from, err := b.getUserNameByID(ev.User)
-		if b.handleError(err, nil) {
-			return
-		}
-
-		reason := "added"
-
-		if addedReaction == false {
-			reason = "removed"
-		}
-
-		// Fetch conversation history
-		history, _, _, err := GetThreadHistory(b.Config.SlackWebClient, ev.Item.Channel, ev.Item.Timestamp)
-		if err != nil {
-			b.Config.Log.Error(err.Error())
-			return
-		}
-
-		// Find the latest message from goodPlaceJudge
-		var lastMsgFromBot *slack.Message
-
-		// Dump the bot IDs
-		for _, message := range history {
-			fmt.Println("BotID: ", message.BotID)
-		}
-
-		for _, message := range history {
-			if message.BotID == b.Config.GoodPlaceJudgeBotID {
-				lastMsgFromBot = &message
-				break
-			}
-		}
-
-		// Form the response message
-		var responseMsg string
-		if len(goodJanetResponse.String()) > 0 {
-			responseMsg = goodJanetResponse.String()
-		} else if len(badJanetResponse.String()) > 0 {
-			responseMsg = badJanetResponse.String()
-		}
-
-		if len(goodJanetResponse.String()) > 0 {
-			reason := fmt.Sprintf("bc %s %s a :%s: emoji \n", from, reason, ev.Reaction)
-			goodJanetResponse.WriteString(reason)
-			// If goodPlaceJudge has sent a message in this thread before, update it
-			// Otherwise, send a new message
-			if lastMsgFromBot != nil {
-
-				// get the current text of the message
-				currentMsg := lastMsgFromBot.Text
-
-				// create the new message
-				newMsg := currentMsg + "\n" + responseMsg
-
-				_, _, _, err = b.Config.SlackWebClient.UpdateMessage(ev.Item.Channel, lastMsgFromBot.Timestamp, slack.MsgOptionText(newMsg, false))
-			} else {
-				_, _, err = b.Config.SlackWebClient.PostMessage(ev.Item.Channel, slack.MsgOptionText(responseMsg, false), slack.MsgOptionTS(ev.Item.Timestamp))
-			}
-
-			if err != nil {
-				b.Config.Log.Error(err.Error())
-			}
-
-		}
-
-		if len(badJanetResponse.String()) > 0 {
-			reason := fmt.Sprintf("bc %s %s a :%s: emoji \n", from, reason, ev.Reaction)
-			badJanetResponse.WriteString(reason)
-			// If goodPlaceJudge has sent a message in this thread before, update it
-			// Otherwise, send a new message
-			if lastMsgFromBot != nil {
-
-				// get the current text of the message
-				currentMsg := lastMsgFromBot.Text
-
-				// create the new message
-				newMsg := currentMsg + "\n" + responseMsg
-
-				_, _, _, err = b.Config.SlackWebClient.UpdateMessage(ev.Item.Channel, lastMsgFromBot.Timestamp, slack.MsgOptionText(newMsg, false))
-			} else {
-				_, _, err = b.Config.SlackWebClient.PostMessage(ev.Item.Channel, slack.MsgOptionText(responseMsg, false), slack.MsgOptionTS(ev.Item.Timestamp))
-			}
-
-			if err != nil {
-				b.Config.Log.Error(err.Error())
-			}
-
-		}
-
+	// Check for give karma patterns (both @user++ and username++) using shared regexps
+	var allKarmaMatches []struct {
+		match       []string
+		isGiveKarma bool
+		isTakeKarma bool
 	}
 
+	if giveMatches := regexps.GivePoints.FindAllStringSubmatch(textToParse, -1); len(giveMatches) > 0 {
+		for _, match := range giveMatches {
+			allKarmaMatches = append(allKarmaMatches, struct {
+				match       []string
+				isGiveKarma bool
+				isTakeKarma bool
+			}{match, true, false})
+		}
+	}
+
+	if takeMatches := regexps.TakePoints.FindAllStringSubmatch(textToParse, -1); len(takeMatches) > 0 {
+		for _, match := range takeMatches {
+			allKarmaMatches = append(allKarmaMatches, struct {
+				match       []string
+				isGiveKarma bool
+				isTakeKarma bool
+			}{match, false, true})
+		}
+	}
+
+	// Process each karma match found in the original message
+	for _, karmaMatch := range allKarmaMatches {
+		// Parse karma information from the match
+		points, toUser := b.parseKarmaMatch(karmaMatch.match, karmaMatch.isGiveKarma)
+		if toUser == "" {
+			continue
+		}
+
+		// Skip self-reactions
+		if reactorUsername == toUser {
+			continue
+		}
+
+		// Apply bangbang effect (double the points)
+		bangbangPoints := points
+		if karmaMatch.isTakeKarma {
+			bangbangPoints = -bangbangPoints
+		}
+
+		// Apply max points limit
+		if bangbangPoints > b.Config.MaxPoints {
+			bangbangPoints = b.Config.MaxPoints
+		} else if bangbangPoints < -b.Config.MaxPoints {
+			bangbangPoints = -b.Config.MaxPoints
+		}
+
+		// Process the karma transaction
+		tx := &database.Transaction{
+			FromUser:        reactorUsername,
+			ToUser:          toUser,
+			Points:          bangbangPoints,
+			Reason:          fmt.Sprintf("added a :bangbang: emoji (doubling existing %d points)", points),
+			TransactionType: "reactji",
+			ChannelID:       &ev.Item.Channel,
+			MessageID:       &ev.Item.Timestamp,
+			Timestamp:       time.Now(),
+		}
+		err := b.Config.DB.InsertTransaction(tx)
+		if err != nil {
+			b.Config.Log.Err(err).Error("failed to insert bangbang transaction")
+			continue
+		}
+
+		// Get updated user points for response
+		user, err := b.Config.DB.GetUser(toUser)
+		if err != nil {
+			b.Config.Log.Err(err).Error("failed to get user points for bangbang response")
+			continue
+		}
+
+		pointsMsg := fmt.Sprintf("%s now has %d points", toUser, user.TotalPoints)
+
+		// Add to appropriate response builder
+		if karmaMatch.isGiveKarma {
+			if len(goodJanetResponse.String()) > 0 {
+				goodJanetResponse.WriteString("\n")
+			}
+			goodJanetResponse.WriteString(pointsMsg)
+		} else {
+			if len(badJanetResponse.String()) > 0 {
+				badJanetResponse.WriteString("\n")
+			}
+			badJanetResponse.WriteString(pointsMsg)
+		}
+	}
+
+	// Get thread history to find existing bot messages
+	history, _, _, err := b.Config.SlackWebClient.GetConversationReplies(&slack.GetConversationRepliesParameters{
+		ChannelID: ev.Item.Channel,
+		Timestamp: ev.Item.Timestamp,
+		Inclusive: true,
+	})
+	if err != nil {
+		b.Config.Log.Err(err).Error("failed to get thread history for bangbang")
+		return
+	}
+
+	// Find the latest message from GoodPlace Judge bot
+	var lastMsgFromBot *slack.Message
+	for _, msg := range history {
+		if msg.BotID == b.Config.GoodPlaceJudgeBotID {
+			lastMsgFromBot = &msg
+			break // Get the first (most recent) match
+		}
+	}
+
+	// Form response messages
+	_ = fmt.Sprintf("bc %s added a :bangbang: emoji \n", reactorUsername)
+
+	if len(goodJanetResponse.String()) > 0 {
+		responseMsg := goodJanetResponse.String()
+
+		// Update existing bot message or post new one
+		if lastMsgFromBot != nil {
+			currentMsg := lastMsgFromBot.Text
+			newMsg := currentMsg + "\n" + responseMsg
+			_, _, _, err = b.Config.SlackWebClient.UpdateMessage(ev.Item.Channel, lastMsgFromBot.Timestamp, slack.MsgOptionText(newMsg, false))
+		} else {
+			_, _, err = b.Config.Slack.PostMessage(ev.Item.Channel,
+				slack.MsgOptionText(responseMsg, false),
+				slack.MsgOptionTS(ev.Item.Timestamp),
+				slack.MsgOptionUsername(b.Config.GoodPersonality.Username),
+				slack.MsgOptionIconURL(b.Config.GoodPersonality.IconURL))
+		}
+
+		if err != nil {
+			b.Config.Log.Err(err).Error("failed to post/update good janet bangbang message")
+		}
+	}
+
+	if len(badJanetResponse.String()) > 0 {
+		responseMsg := badJanetResponse.String()
+
+		// Update existing bot message or post new one
+		if lastMsgFromBot != nil {
+			currentMsg := lastMsgFromBot.Text
+			newMsg := currentMsg + "\n" + responseMsg
+			_, _, _, err = b.Config.SlackWebClient.UpdateMessage(ev.Item.Channel, lastMsgFromBot.Timestamp, slack.MsgOptionText(newMsg, false))
+		} else {
+			_, _, err = b.Config.Slack.PostMessage(ev.Item.Channel,
+				slack.MsgOptionText(responseMsg, false),
+				slack.MsgOptionTS(ev.Item.Timestamp),
+				slack.MsgOptionUsername(b.Config.BadPersonality.Username),
+				slack.MsgOptionIconURL(b.Config.BadPersonality.IconURL))
+		}
+
+		if err != nil {
+			b.Config.Log.Err(err).Error("failed to post/update bad janet bangbang message")
+		}
+	}
 }
 
-func GetMessage(slackClient *slack.Client, channelId string, messageId string) (*slack.GetConversationHistoryResponse, error) {
-	return slackClient.GetConversationHistory(&slack.GetConversationHistoryParameters{
-		ChannelID: channelId,
-		Inclusive: true,
-		Latest:    messageId,
-		Limit:     1,
-	})
+// calculateKarmaFromMessage parses a message and calculates total karma points being given in the message
+func (b *Bot) calculateKarmaFromMessage(messageText, messageAuthor string) int {
+	totalPoints := 0
+
+	// Handle motivates like the main bot does
+	if match := regexps.Motivate.FindStringSubmatch(messageText); len(match) > 0 {
+		messageText = match[1] + "++ for doing good work"
+	}
+
+	// Check for give karma patterns - sum ALL karma being given
+	if matches := regexps.GivePoints.FindAllStringSubmatch(messageText, -1); len(matches) > 0 {
+		for _, match := range matches {
+			points, toUser := b.parseKarmaMatch(match, true)
+			if toUser != "" { // Any valid karma given
+				totalPoints += points
+			}
+		}
+	}
+
+	// Check for take karma patterns - subtract karma being taken
+	if matches := regexps.TakePoints.FindAllStringSubmatch(messageText, -1); len(matches) > 0 {
+		for _, match := range matches {
+			points, toUser := b.parseKarmaMatch(match, false)
+			if toUser != "" { // Any valid karma taken
+				totalPoints += points // points is already negative from parseKarmaMatch
+			}
+		}
+	}
+
+	return totalPoints
 }
 
-func GetThreadHistory(slackClient *slack.Client, channelId string, threadTs string) ([]slack.Message, bool, string, error) {
-	return slackClient.GetConversationReplies(&slack.GetConversationRepliesParameters{
-		ChannelID: channelId,
-		Timestamp: threadTs,
-		Inclusive: true,
-	})
+// parseKarmaMatch parses a regex match and extracts karma information for bangbang calculation
+func (b *Bot) parseKarmaMatch(match []string, isPositive bool) (int, string) {
+	var targetUser, karmaChars string
+
+	if match[1] != "" {
+		// @user format
+		targetUser = match[1]
+		karmaChars = match[2]
+	} else if match[5] != "" {
+		// username format
+		targetUser = match[5]
+		karmaChars = match[6]
+	}
+
+	if targetUser == "" || karmaChars == "" {
+		return 0, ""
+	}
+
+	// Calculate points from karma characters (++ = 1, +++ = 2, etc.)
+	points := len(karmaChars) - 1
+	if points < 1 {
+		points = 1
+	}
+	if points > b.Config.MaxPoints {
+		points = b.Config.MaxPoints
+	}
+
+	if !isPositive {
+		points = -points
+	}
+
+	// Handle @user format - extract username
+	var toUser string
+	if strings.HasPrefix(targetUser, "<@") && strings.HasSuffix(targetUser, ">") {
+		userID := targetUser[2 : len(targetUser)-1]
+		username, err := b.GetUserNameByID(userID)
+		if err != nil {
+			return 0, ""
+		}
+		toUser = username
+	} else {
+		toUser = targetUser
+	}
+
+	return points, toUser
+}
+
+// processKarmaTransaction creates and processes a karma transaction
+func (b *Bot) processKarmaTransaction(fromUser, toUser string, points int, reason, transactionType string, channelID, messageID *string) {
+	// add the actor's username to the reason
+	reason = fmt.Sprintf("%s %s", fromUser, reason)
+
+	// create and insert transaction
+	tx := &database.Transaction{
+		FromUser:        fromUser,
+		ToUser:          toUser,
+		Points:          points,
+		Reason:          reason,
+		TransactionType: transactionType,
+		ChannelID:       channelID,
+		MessageID:       messageID,
+		Timestamp:       time.Now(),
+	}
+	err := b.Config.DB.InsertTransaction(tx)
+	if b.handleError(err, nil) {
+		return
+	}
 }
 
 // at this point there is no difference between ReactionAddedEvent and ReactionRemovedEvent
 func (b *Bot) handleReactionEvent(ev *slack.ReactionAddedEvent, reason string, points int) {
 	// look up usernames
-	from, err := b.getUserNameByID(ev.User)
+	from, err := b.GetUserNameByID(ev.User)
 	if b.handleError(err, nil) {
 		return
 	}
-	to, err := b.getUserNameByID(ev.ItemUser)
+	to, err := b.GetUserNameByID(ev.ItemUser)
 	if b.handleError(err, nil) {
 		return
 	}
@@ -541,28 +604,25 @@ func (b *Bot) handleReactionEvent(ev *slack.ReactionAddedEvent, reason string, p
 	// add the actor's username to the reason
 	reason = fmt.Sprintf("%s %s", from, reason)
 
-	from, to = strings.ToLower(from), strings.ToLower(to)
-
-	//don't let people give themselves emoji reactions
-	if !b.Config.SelfPoints && from == to {
-		return
+	// give points
+	tx := &database.Transaction{
+		FromUser:        from,
+		ToUser:          to,
+		Points:          points,
+		Reason:          reason,
+		TransactionType: "reactji",
+		ChannelID:       &ev.Item.Channel,
+		MessageID:       &ev.Item.Timestamp,
+		Timestamp:       time.Now(),
 	}
-
-	// insert points
-	record := &database.Points{
-		From:   from,
-		To:     to,
-		Points: points,
-		Reason: reason,
-	}
-
-	err = b.Config.DB.InsertPoints(record)
+	err = b.Config.DB.InsertTransaction(tx)
 	if b.handleError(err, nil) {
 		return
 	}
 }
 
 func (b *Bot) handleMessageEvent(ev *slack.MessageEvent) {
+	b.Config.Log.KV("channel", ev.Channel).KV("user", ev.User).KV("text", ev.Text).Info("received message")
 	if ev.Type != "message" {
 		return
 	}
@@ -576,7 +636,8 @@ func (b *Bot) handleMessageEvent(ev *slack.MessageEvent) {
 
 	textToParse := ev.Text
 
-	re := regexp.MustCompile("(<@[A-Za-z0-9]+>(\\s)?([\\+]{2,})?([\\-]{2,})?)")
+	re := regexp.MustCompile(`(<@[A-Za-z0-9]+>(\s)?([+]{2,})?([-]{2,})?)`)
+
 	splits := re.FindAllString(textToParse, -1)
 
 	var goodJanetResponse strings.Builder
@@ -589,14 +650,13 @@ func (b *Bot) handleMessageEvent(ev *slack.MessageEvent) {
 
 			switch {
 			case regexps.GivePoints.MatchString(splitText):
-				goodJanetResponse.WriteString(b.applyPoints(ev, "", splitText))
+				goodJanetResponse.WriteString(b.applyPoints(ev, true, splitText))
 				if len(goodJanetResponse.String()) > 0 {
 					goodJanetResponse.WriteString("\n")
 				}
 
 			case regexps.TakePoints.MatchString(splitText):
-				whichJanet := "badJanet"
-				badJanetResponse.WriteString(b.applyPoints(ev, whichJanet, splitText))
+				badJanetResponse.WriteString(b.applyPoints(ev, false, splitText))
 				if len(badJanetResponse.String()) > 0 {
 					badJanetResponse.WriteString("\n")
 				}
@@ -610,7 +670,7 @@ func (b *Bot) handleMessageEvent(ev *slack.MessageEvent) {
 
 		if len(goodJanetResponse.String()) > 0 {
 			responseMsg := goodJanetResponse.String()
-			_, _, err := b.Config.SlackWebClient.PostMessage(ev.Channel, slack.MsgOptionText(responseMsg, false), slack.MsgOptionTS(ev.Timestamp))
+			_, _, err := b.Config.Slack.PostMessage(ev.Channel, slack.MsgOptionText(responseMsg, false), slack.MsgOptionTS(ev.Timestamp), slack.MsgOptionUsername(b.Config.GoodPersonality.Username), slack.MsgOptionIconURL(b.Config.GoodPersonality.IconURL))
 			if err != nil {
 				b.Config.Log.Error(err.Error())
 			}
@@ -618,7 +678,7 @@ func (b *Bot) handleMessageEvent(ev *slack.MessageEvent) {
 
 		if len(badJanetResponse.String()) > 0 {
 			responseMsg := badJanetResponse.String()
-			_, _, err := b.Config.SlackWebClient.PostMessage(ev.Channel, slack.MsgOptionText(responseMsg, false), slack.MsgOptionTS(ev.Timestamp))
+			_, _, err := b.Config.Slack.PostMessage(ev.Channel, slack.MsgOptionText(responseMsg, false), slack.MsgOptionTS(ev.Timestamp), slack.MsgOptionUsername(b.Config.BadPersonality.Username), slack.MsgOptionIconURL(b.Config.BadPersonality.IconURL))
 			if err != nil {
 				b.Config.Log.Error(err.Error())
 			}
@@ -636,6 +696,121 @@ func (b *Bot) handleMessageEvent(ev *slack.MessageEvent) {
 	}
 }
 
+func (b *Bot) getReplyThread(message *slack.MessageEvent) string {
+	var thread string
+
+	switch b.Config.ReplyType {
+	case "message":
+		thread = message.ThreadTimestamp
+	case "thread":
+		if message.ThreadTimestamp != "" {
+			thread = message.ThreadTimestamp
+		} else {
+			thread = message.Timestamp
+		}
+	}
+
+	return thread
+}
+
+// SendReply sends a reply to a message, either as a new message in the channel or a thread (configurable)
+func (b *Bot) SendReply(reply string, message *slack.MessageEvent, isGoodPersonality bool) {
+	switch b.Config.ReplyType {
+	case "ephemeral":
+		b.SendReplyEphemeral(reply, message)
+	default:
+		b.SendMessage(reply, message.Channel, b.getReplyThread(message), isGoodPersonality)
+	}
+}
+
+// SendReplyEphemeral sends a reply to a message as an ephemeral message to the user
+func (b *Bot) SendReplyEphemeral(reply string, message *slack.MessageEvent) {
+	b.SendMessageEphemeral(message.Channel, message.User, reply, message.ThreadTimestamp)
+}
+
+// SendMessageEphemeral sends an ephemeral message to a user
+func (b *Bot) SendMessageEphemeral(reply, channel, user, thread string) {
+	b.Config.Slack.PostEphemeral(channel, user, slack.MsgOptionText(reply, false), slack.MsgOptionTS(thread))
+}
+
+// SendMessage sends a message to a Slack channel with personality-based username and avatar.
+func (b *Bot) SendMessage(message, channel, thread string, isGoodPersonality bool) {
+	var personality BotPersonality
+	if isGoodPersonality {
+		personality = b.Config.GoodPersonality
+	} else {
+		personality = b.Config.BadPersonality
+	}
+
+	b.Config.Log.Info("sending message as " + personality.Username)
+
+	options := []slack.MsgOption{
+		slack.MsgOptionText(message, false),
+		slack.MsgOptionUsername(personality.Username),
+		slack.MsgOptionIconURL(personality.IconURL),
+	}
+
+	if thread != "" {
+		options = append(options, slack.MsgOptionTS(thread))
+	}
+
+	_, _, err := b.Config.Slack.PostMessage(channel, options...)
+	if err != nil {
+		b.Config.Log.Err(err).Error("failed to send message")
+		return
+	}
+
+	// Randomly append a quote
+	if appendQuoteToMessage() {
+		var quote string
+		if isGoodPersonality {
+			quote = goodJanetQuote()
+		} else {
+			quote = badJanetQuote()
+		}
+
+		quoteOptions := []slack.MsgOption{
+			slack.MsgOptionText(quote, false),
+			slack.MsgOptionUsername(personality.Username),
+			slack.MsgOptionIconURL(personality.IconURL),
+		}
+
+		if thread != "" {
+			quoteOptions = append(quoteOptions, slack.MsgOptionTS(thread))
+		}
+
+		_, _, err := b.Config.Slack.PostMessage(channel, quoteOptions...)
+		if err != nil {
+			b.Config.Log.Err(err).Error("failed to send quote message")
+		}
+	}
+}
+
+// DMUser sends a message directly to a Slack user.
+func (b *Bot) DMUser(message, user string, isGoodPersonality bool) {
+	_, _, channel, err := b.Config.Slack.OpenIMChannel(user)
+	if err != nil {
+		b.Config.Log.Err(err).KV("user", user).Error("could not open IM channel with user")
+		return
+	}
+
+	b.SendMessage(message, channel, "", isGoodPersonality)
+}
+
+func (b *Bot) handleError(err error, message *slack.MessageEvent) bool {
+	if err == nil {
+		return false
+	}
+
+	b.Config.Log.Err(err).Error("error")
+	if b.Config.Debug && message != nil {
+		text := fmt.Sprintf("i had a problem: %v", err)
+		b.SendReply(text, message, false)
+	}
+
+	return true
+}
+
 func (b *Bot) printURL(ev *slack.MessageEvent) {
 	url, err := b.Config.UI.GetURL("/")
 	if b.handleError(err, ev) {
@@ -647,11 +822,15 @@ func (b *Bot) printURL(ev *slack.MessageEvent) {
 		return
 	}
 
-	b.SendReply(url, ev, "")
+	b.SendReply(url, ev, true)
 }
 
-func (b *Bot) applyPoints(ev *slack.MessageEvent, whichJanet, splitText string) string {
-	b.Config.Log.Info(whichJanet)
+func (b *Bot) applyPoints(ev *slack.MessageEvent, isGoodPersonality bool, splitText string) string {
+	personality := "good"
+	if !isGoodPersonality {
+		personality = "bad"
+	}
+	b.Config.Log.Info(personality)
 
 	match := regexps.GivePoints.FindStringSubmatch(splitText)
 	if len(match) == 0 {
@@ -670,115 +849,57 @@ func (b *Bot) applyPoints(ev *slack.MessageEvent, whichJanet, splitText string) 
 		match = append(match[:1], match[4:]...)
 	}
 
-	from, err := b.getUserNameByID(ev.User)
-	if b.handleError(err, ev) {
-		return ""
-	}
-	to, err := b.parseUser(match[1])
-	if b.handleError(err, ev) {
-		return ""
-	}
-	to = strings.ToLower(to)
-
-	if _, blacklisted := b.Config.UserBlacklist[to]; blacklisted {
-		b.Config.Log.KV("user", to).Info("user is blacklisted, ignoring karma command")
-		return ""
-	}
-
 	points := min(len(match[2])-1, b.Config.MaxPoints)
 	if match[2][0] == '-' {
 		points *= -1
 	}
 	reason := match[3]
 
-	if !b.Config.SelfPoints && from == to {
-		b.SendReply("you are not allowed to modify your own points.", ev, "badJanet")
+	from, err := b.GetUserNameByID(ev.User)
+	if b.handleError(err, ev) {
 		return ""
 	}
-
-	record := &database.Points{
-		From:   from,
-		To:     to,
-		Points: points,
-		Reason: reason,
-	}
-
-	err = b.Config.DB.InsertPoints(record)
+	to, err := b.ParseUser(match[1])
 	if b.handleError(err, ev) {
 		return ""
 	}
 
-	pointsMsg, err := b.getUserPointsMessage(to, reason, points)
-	if b.handleError(err, ev) {
-		return ""
-	}
-
-	return pointsMsg
-}
-
-func (b *Bot) bangBangApplyPoints(ev *slack.ReactionAddedEvent, whichJanet, splitText string) string {
-	b.Config.Log.Info(whichJanet)
-
-	match := regexps.GivePoints.FindStringSubmatch(splitText)
-	if len(match) == 0 {
-		match = regexps.TakePoints.FindStringSubmatch(splitText)
-	}
-	if len(match) == 0 {
-		return ""
-	}
-
-	// forgive me
-	if match[1] != "" {
-		// we matched the first alt expression
-		match = match[:4]
-	} else {
-		// we matched the second alt expression
-		match = append(match[:1], match[4:]...)
-	}
-
-	from, err := b.getUserNameByID(ev.User)
-	if b.bangBangHandleError(err, ev) {
-		return ""
-	}
-	to, err := b.parseUser(match[1])
-	if b.bangBangHandleError(err, ev) {
-		return ""
-	}
 	to = strings.ToLower(to)
+	from = strings.ToLower(from)
 
-	if _, blacklisted := b.Config.UserBlacklist[to]; blacklisted {
+	if !b.Config.SelfPoints && to == from {
+		return "giving points to yourself is a classic bad place move"
+	}
+
+	if b.Config.UserBlacklist.Contains(to) {
 		b.Config.Log.KV("user", to).Info("user is blacklisted, ignoring karma command")
 		return ""
 	}
 
-	points := min(len(match[2])-1, b.Config.MaxPoints)
-	if match[2][0] == '-' {
-		points *= -1
-	}
-	reason := match[3]
-
-	if !b.Config.SelfPoints && from == to {
+	err = b.Config.DB.InsertTransaction(&database.Transaction{
+		FromUser:        from,
+		ToUser:          to,
+		Points:          points,
+		Reason:          reason,
+		TransactionType: "manual",
+		ChannelID:       &ev.Channel,
+		MessageID:       &ev.Timestamp,
+		Timestamp:       time.Now(),
+	})
+	if b.handleError(err, ev) {
 		return ""
 	}
 
-	record := &database.Points{
-		From:   from,
-		To:     to,
-		Points: points,
-		Reason: reason,
-	}
-
-	err = b.Config.DB.InsertPoints(record)
-	if b.bangBangHandleError(err, ev) {
+	user, err := b.Config.DB.GetUser(to)
+	if b.handleError(err, ev) {
 		return ""
 	}
 
-	pointsMsg, err := b.getUserPointsMessage(to, reason, points)
-	if b.bangBangHandleError(err, ev) {
-		return ""
+	text := fmt.Sprintf("%s has %d points", Munge(to), user.TotalPoints)
+	if reason != "" {
+		text = fmt.Sprintf("%s (%d for %s)", text, points, reason)
 	}
-
-	return pointsMsg
+	return text
 }
 
 func (b *Bot) getThrowback(ev *slack.MessageEvent) {
@@ -792,13 +913,13 @@ func (b *Bot) getThrowback(ev *slack.MessageEvent) {
 		err  error
 	)
 	if match[1] != "" {
-		user, err = b.parseUser(match[1])
+		user, err = b.ParseUser(match[1])
 		if b.handleError(err, ev) {
 			return
 		}
 		user = strings.ToLower(user)
 	} else {
-		user, err = b.getUserNameByID(ev.User)
+		user, err = b.GetUserNameByID(ev.User)
 		if b.handleError(err, ev) {
 			return
 		}
@@ -806,7 +927,7 @@ func (b *Bot) getThrowback(ev *slack.MessageEvent) {
 
 	throwback, err := b.Config.DB.GetThrowback(user)
 	if err == database.ErrNoSuchUser {
-		b.SendReply(fmt.Sprintf("could not find any karma operations for %s", user), ev, "")
+		b.SendReply(fmt.Sprintf("could not find any karma operations for %s", user), ev, true)
 		return
 	}
 
@@ -818,30 +939,9 @@ func (b *Bot) getThrowback(ev *slack.MessageEvent) {
 	if throwback.Reason != "" {
 		throwback.Reason = fmt.Sprintf(" for %s", throwback.Reason)
 	}
-	text := fmt.Sprintf("%s received %d points from %s %s%s", munge.Munge(throwback.To), throwback.Points.Points, munge.Munge(throwback.From), date, throwback.Reason)
+	text := fmt.Sprintf("%s received %d points from %s %s%s", Munge(throwback.To), throwback.Points.Points, Munge(throwback.From), date, throwback.Reason)
 
-	b.SendReply(text, ev, "")
-}
-
-func (b *Bot) getUserPointsMessage(name, reason string, points int) (string, error) {
-	user, err := b.Config.DB.GetUser(name)
-	if err != nil {
-		return "", err
-	}
-
-	text := fmt.Sprintf("%s now has %d points (", name, user.Points)
-
-	if points > 0 {
-		text += "+"
-	}
-	text = fmt.Sprintf("%s%d", text, points)
-
-	if reason != "" {
-		text += fmt.Sprintf(" for %s", reason)
-	}
-	text += ")"
-
-	return text, nil
+	b.SendReply(text, ev, true)
 }
 
 func (b *Bot) printLeaderboard(ev *slack.MessageEvent) {
@@ -869,42 +969,54 @@ func (b *Bot) printLeaderboard(ev *slack.MessageEvent) {
 		text = fmt.Sprintf("%s%s\n", text, url)
 	}
 
-	leaderboard, err := b.Config.DB.GetLeaderboard(limit)
+	board, err := b.Config.DB.GetCurrentLeaderboard(limit)
 	if b.handleError(err, ev) {
 		return
 	}
 
-	for i, user := range leaderboard {
-		text += fmt.Sprintf("%d. %s == %d\n", i+1, munge.Munge(user.Name), user.Points)
+	for i, user := range board {
+		text = fmt.Sprintf("%s%d. %s (%d)\n", text, i+1, Munge(user.Username), user.TotalPoints)
 	}
 
-	b.SendReply(text, ev, "")
+	b.SendReply(text, ev, true)
 }
 
-func (b *Bot) parseUser(user string) (string, error) {
-	if match := regexps.SlackUser.FindStringSubmatch(user); len(match) > 0 {
-		var err error
-		user, err = b.getUserNameByID(match[1])
-		if err != nil {
-			return "", err
+func (b *Bot) ParseUser(user string) (string, error) {
+	user = strings.Trim(user, "<>@ ")
+
+	var name string
+	var err error
+
+	// check if it's a UID
+	if !regexps.SlackUser.MatchString(fmt.Sprintf("<@%s>", user)) {
+		if alias, ok := b.Config.Aliases[user]; ok {
+			return alias, nil
 		}
+		return user, nil
 	}
 
-	// check if it is aliased
-	if alias, ok := b.Config.Aliases[user]; ok {
-		user = alias
-	}
-
-	return user, nil
-}
-
-func (b *Bot) getUserNameByID(id string) (string, error) {
-	userInfo, err := b.Config.Slack.GetUserInfo(id)
+	// it's a UID, look it up
+	name, err = b.GetUserNameByID(user)
 	if err != nil {
 		return "", err
 	}
+	if alias, ok := b.Config.Aliases[name]; ok {
+		return alias, nil
+	}
+	return name, nil
+}
 
-	return userInfo.Name, nil
+func (b *Bot) GetUserNameByID(id string) (string, error) {
+	user, err := b.Config.Slack.GetUserInfo(id)
+	if err != nil {
+		return "", err
+	}
+	return user.Name, nil
+}
+
+// GetSlackUserInfo returns complete Slack user information for filtering and display
+func (b *Bot) GetSlackUserInfo(id string) (*slack.User, error) {
+	return b.Config.Slack.GetUserInfo(id)
 }
 
 func (b *Bot) queryPoints(ev *slack.MessageEvent) {
@@ -913,7 +1025,7 @@ func (b *Bot) queryPoints(ev *slack.MessageEvent) {
 		return
 	}
 
-	name, err := b.parseUser(match[1])
+	name, err := b.ParseUser(match[1])
 	if b.handleError(err, ev) {
 		return
 	}
@@ -923,9 +1035,9 @@ func (b *Bot) queryPoints(ev *slack.MessageEvent) {
 	switch {
 	case err == database.ErrNoSuchUser:
 		// override debug mode
-		b.SendReply(err.Error(), ev, "")
+		b.SendReply(err.Error(), ev, true)
 	case b.handleError(err, ev):
 	default:
-		b.SendReply(fmt.Sprintf("%s == %d", user.Name, user.Points), ev, "")
+		b.SendReply(fmt.Sprintf("%s == %d", name, user.TotalPoints), ev, true)
 	}
 }

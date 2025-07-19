@@ -1,7 +1,17 @@
 builds:
-  - id: janet
-    binary: janet
-    main: ./cmd/janet/main.go
+  - id: janet-server
+    binary: janet-server
+    main: ./janet-server/main.go
+    ldflags: -s -w -X "github.com/troyxmccall/janet.Version={{.Version}}"
+    goos:
+      - linux
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=1
+  - id: janet-bot
+    binary: janet-bot
+    main: ./cmd/janet-bot/main.go
     ldflags: -s -w -X "github.com/troyxmccall/janet.Version={{.Version}}"
     goos:
       - linux
@@ -23,24 +33,22 @@ snapshot:
   name_template: "{{ .Tag }}-next"
 
 dockers:
-  - id: janet
-    dockerfile: ./cmd/janet/Dockerfile-goreleaser
+  - id: janet-server
+    dockerfile: ./janet-server/Dockerfile
     # IDs to filter the binaries/packages.
     ids:
-      - janet
+      - janet-server
     image_templates:
       - "troyxmccall/janet:{{ .Version }}"
       - "troyxmccall/janet:latest"
-  - id: janet-webui
+  - id: janet-bot
+    dockerfile: ./cmd/janet-bot/Dockerfile
     # IDs to filter the binaries/packages.
     ids:
-      - janet
-    dockerfile: ./cmd/janet/Dockerfile-webui-goreleaser
+      - janet-bot
     image_templates:
-      - "troyxmccall/janet:{{ .Version }}-webui"
-      - "troyxmccall/janet:latest-webui"
-    extra_files:
-      - www
+      - "troyxmccall/janet-bot:{{ .Version }}"
+      - "troyxmccall/janet-bot:latest"
   - id: janetctl
     # IDs to filter the binaries/packages.
     ids:

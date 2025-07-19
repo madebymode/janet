@@ -1,0 +1,58 @@
+services:
+  # Janet Backfill CLI Service
+  janet-backfill:
+    build:
+      context: .
+      dockerfile: ./cmd/janet-backfill/Dockerfile
+    image: janet-backfill:latest
+    container_name: janet-backfill
+    environment:
+      - JANET_DATABASE_DRIVER=${JANET_DATABASE_DRIVER:-postgres}
+      - JANET_DATABASE_URL=${JANET_DATABASE_URL:-postgres://janet:password@postgres:5432/janet?sslmode=disable}
+      - JANET_SLACK_TOKEN=${JANET_SLACK_TOKEN}
+      - JANET_DEBUG=${JANET_DEBUG:-false}
+      - BACKFILL_START_DATE=${BACKFILL_START_DATE:-2023-01-01}
+      - BACKFILL_END_DATE=${BACKFILL_END_DATE:-$(date +%Y-%m-%d)}
+      - BACKFILL_CHANNELS=${BACKFILL_CHANNELS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - janet-backfill-network
+    # Bulk backfill multiple channels from start date to end date
+    #command: ["/bin/sh", "-c", "if [ -z \"$$BACKFILL_CHANNELS\" ]; then echo 'Error: BACKFILL_CHANNELS environment variable is required'; echo 'Set it as a space-separated list of channel IDs, e.g.: BACKFILL_CHANNELS=\"C1234567890 C0987654321\"'; exit 1; fi; echo \"Starting bulk backfill from $$BACKFILL_START_DATE to $$BACKFILL_END_DATE\"; for channel in $$BACKFILL_CHANNELS; do echo \"Processing channel: $$channel\"; ./janet-backfill -channel \"$$channel\" -since \"$$BACKFILL_START_DATE\" -until \"$$BACKFILL_END_DATE\" -include-emoji; sleep 2; done; echo 'Bulk backfill completed'"]
+    # For interactive shell access, uncomment below and comment above:
+    entrypoint: ["/bin/sh"]
+    # command: []
+    # For interactive use, uncomment below and comment above:
+    # command: ["/bin/sh", "-c", "while true; do sleep 30; done"]
+    # For listing channels, use:
+    # command: ["-list-channels"]
+
+  # PostgreSQL Database for Backfill
+  postgres:
+    image: postgres:15-alpine
+    container_name: janet-backfill-postgres
+    environment:
+      POSTGRES_DB: janet
+      POSTGRES_USER: janet
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"  # Use different port to avoid conflicts with main janet postgres
+    volumes:
+      - backfill_postgres_data:/var/lib/postgresql/data
+      - ./database/migration.sql:/docker-entrypoint-initdb.d/01-migration.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U janet -d janet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - janet-backfill-network
+
+volumes:
+  backfill_postgres_data:
+
+networks:
+  janet-backfill-network:
+    driver: bridge

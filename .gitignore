@@ -5,3 +5,10 @@ dist/
 .env
 */*/builds/*
 .DS_Store
+.claude/
+janet-server/web-react/node_modules/
+node_modules/
+cmd/janet-bot/janet-bot
+janet-backfill
+janet-server/janet-server
+janet-server/janet-server-test

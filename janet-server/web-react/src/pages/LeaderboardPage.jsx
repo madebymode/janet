@@ -84,13 +84,13 @@ function LeaderboardPage({ selectedYear, onUserChange, leaderboardData, leaderbo
               borderRadius: '12px',
               fontWeight: '500'
             }}>
-              {leaderboardData?.users?.length || 0} members
+              Top {Math.min(25, leaderboardData?.users?.length || 0)} of {leaderboardData?.users?.length || 0}
             </div>
           </div>
           
           <div style={{ position: 'relative' }}>
             <LeaderboardTable 
-              data={leaderboardData?.users || []} 
+              data={(leaderboardData?.users || []).slice(0, 25)} 
               loading={leaderboardLoading} 
               error={leaderboardError}
               onUserClick={handleUserClick}

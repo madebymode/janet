@@ -11,16 +11,21 @@ function UsersPage({ selectedYear, selectedUser, onUserChange, onYearChange }) {
       : `/api/leaderboard?limit=100&year=${selectedYear}`
   )
 
-  // Find user data from leaderboard (which has complete details)
-  const userData = selectedUser && leaderboard?.users 
-    ? leaderboard.users.find(user => user.username === selectedUser)
-    : null
-  const userLoading = false // No separate API call needed
+  // Get user-specific data by year (if year is selected) or all-time data
+  const { data: userData, loading: userLoading } = useApi(
+    selectedUser
+      ? selectedYear === 0 
+        ? `/api/user/${selectedUser}`
+        : `/api/user/${selectedUser}/${selectedYear}`
+      : null
+  )
 
   // Get user-specific points over time data
   const { data: userPointsOverTime, loading: monthlyLoading } = useApi(
-    selectedUser && selectedYear !== 0
-      ? `/api/user/${selectedUser}/${selectedYear}/points-over-time`
+    selectedUser
+      ? selectedYear === 0
+        ? `/api/user/${selectedUser}/points-over-time/all`
+        : `/api/user/${selectedUser}/${selectedYear}/points-over-time`
       : null
   )
 
@@ -147,7 +152,7 @@ function UsersPage({ selectedYear, selectedUser, onUserChange, onYearChange }) {
             <StatCard
               icon="⭐"
               title="Total Points"
-              value={userData?.total_points || 0}
+              value={userData?.total_points || userData?.points || 0}
               loading={userLoading}
               subtitle={`${getYearLabel()} performance`}
               color="#e74c3c"
@@ -180,69 +185,67 @@ function UsersPage({ selectedYear, selectedUser, onUserChange, onYearChange }) {
           </div>
 
           {/* User Points Over Time Chart */}
-          {selectedYear !== 0 && (
-            <div className="card" style={{
-              background: 'white',
-              borderRadius: '12px',
-              padding: '1.5rem',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-              border: '1px solid #f0f0f0',
-              marginBottom: '2rem'
+          <div className="card" style={{
+            background: 'white',
+            borderRadius: '12px',
+            padding: '1.5rem',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+            border: '1px solid #f0f0f0',
+            marginBottom: '2rem'
+          }}>
+            <h3 style={{
+              margin: '0 0 1rem 0',
+              fontSize: '1.2rem',
+              fontWeight: '600',
+              color: '#2c3e50',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
             }}>
-              <h3 style={{
-                margin: '0 0 1rem 0',
-                fontSize: '1.2rem',
-                fontWeight: '600',
-                color: '#2c3e50',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem'
+              <span>📈</span>
+              Points Over Time - {selectedUser} ({getYearLabel()})
+            </h3>
+            
+            {monthlyLoading ? (
+              <div style={{ 
+                height: '300px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                color: '#999'
               }}>
-                <span>📈</span>
-                Points Over Time - {selectedUser} ({selectedYear})
-              </h3>
-              
-              {monthlyLoading ? (
-                <div style={{ 
-                  height: '300px', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center',
-                  color: '#999'
-                }}>
-                  Loading chart...
+                Loading chart...
+              </div>
+            ) : userPointsOverTime && userPointsOverTime.length > 0 ? (
+              <LineChart 
+                data={userPointsOverTime} 
+                xKey={selectedYear === 0 ? "year" : "month"} 
+                yKey="totalPoints"
+              />
+            ) : (
+              <div style={{
+                height: '200px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#666',
+                textAlign: 'center',
+                background: '#f8f9fa',
+                borderRadius: '8px',
+                padding: '2rem'
+              }}>
+                <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>📊</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: '600', marginBottom: '0.5rem' }}>
+                  No data for {getYearLabel()}
                 </div>
-              ) : userPointsOverTime && userPointsOverTime.length > 0 ? (
-                <LineChart 
-                  data={userPointsOverTime} 
-                  xKey="month" 
-                  yKey="totalPoints"
-                />
-              ) : (
-                <div style={{
-                  height: '200px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#666',
-                  textAlign: 'center',
-                  background: '#f8f9fa',
-                  borderRadius: '8px',
-                  padding: '2rem'
-                }}>
-                  <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>📊</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: '600', marginBottom: '0.5rem' }}>
-                    No data for {selectedYear}
-                  </div>
-                  <div style={{ fontSize: '0.9rem', lineHeight: 1.5 }}>
-                    {selectedUser} had no karma activity in {selectedYear}.<br/>
-                    Try selecting a different year or user.
-                  </div>
+                <div style={{ fontSize: '0.9rem', lineHeight: 1.5 }}>
+                  {selectedUser} had no karma activity {selectedYear === 0 ? 'in any year' : `in ${selectedYear}`}.<br/>
+                  Try selecting a different {selectedYear === 0 ? 'user' : 'year or user'}.
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
 
           {/* User Details Card */}
           <div className="card" style={{
@@ -276,7 +279,7 @@ function UsersPage({ selectedYear, selectedUser, onUserChange, onYearChange }) {
                 gap: '1rem'
               }}>
                 {[
-                  { label: 'Total Points', value: (userData.total_points || 0).toLocaleString(), icon: '⭐' },
+                  { label: 'Total Points', value: (userData.total_points || userData.points || 0).toLocaleString(), icon: '⭐' },
                   { label: 'Points Given', value: (userData.points_given || 0).toLocaleString(), icon: '🎁' },
                   { label: 'Points Received', value: (userData.points_received || 0).toLocaleString(), icon: '📥' },
                   { label: 'Transactions Given', value: (userData.transactions_given || 0).toLocaleString(), icon: '📤' },

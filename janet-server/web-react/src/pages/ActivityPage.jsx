@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { useApi } from '../hooks/useApi'
 
 // Simple emoji name to emoji mapping
@@ -13,11 +13,43 @@ const getEmojiFromName = (emojiName) => {
 }
 
 function ActivityPage({ selectedYear, onUserChange }) {
-  const { data: recentActivity, loading: activityLoading } = useApi(
-    selectedYear === 0 
-      ? '/api/stats/recent-activity?limit=50' 
-      : `/api/stats/recent-activity?limit=50&year=${selectedYear}`
-  )
+  const [currentPage, setCurrentPage] = useState(1)
+  const [fromUser, setFromUser] = useState('')
+  const [toUser, setToUser] = useState('')
+  const [searchFromUser, setSearchFromUser] = useState('')
+  const [searchToUser, setSearchToUser] = useState('')
+  const itemsPerPage = 20
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [selectedYear, searchFromUser, searchToUser])
+
+  // Build API URL with pagination and search parameters
+  const buildApiUrl = () => {
+    const params = new URLSearchParams()
+    params.set('limit', itemsPerPage.toString())
+    params.set('offset', ((currentPage - 1) * itemsPerPage).toString())
+    
+    if (selectedYear !== 0) {
+      params.set('year', selectedYear.toString())
+    }
+    
+    if (searchFromUser.trim()) {
+      params.set('from', searchFromUser.trim())
+    }
+    
+    if (searchToUser.trim()) {
+      params.set('to', searchToUser.trim())
+    }
+    
+    return `/api/stats/recent-activity?${params.toString()}`
+  }
+
+  const { data: activityData, loading: activityLoading, refetch } = useApi(buildApiUrl())
+  
+  const recentActivity = activityData?.activities || []
+  const pagination = activityData?.pagination || {}
 
   const getYearLabel = () => {
     if (selectedYear === 0) return 'All Time'
@@ -27,6 +59,89 @@ function ActivityPage({ selectedYear, onUserChange }) {
 
   const handleUserClick = (username) => {
     onUserChange(username)
+  }
+
+  const handleSearch = () => {
+    setSearchFromUser(fromUser)
+    setSearchToUser(toUser)
+  }
+
+  const handleClearSearch = () => {
+    setFromUser('')
+    setToUser('')
+    setSearchFromUser('')
+    setSearchToUser('')
+  }
+
+  const handlePageChange = (newPage) => {
+    setCurrentPage(newPage)
+  }
+
+  const renderPaginationControls = () => {
+    if (!pagination.total || pagination.total <= itemsPerPage) return null
+
+    const totalPages = pagination.totalPages || 1
+    const currentPageNum = pagination.currentPage || 1
+    
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: '1.5rem',
+        padding: '1rem',
+        background: '#f8f9fa',
+        borderRadius: '8px'
+      }}>
+        <div style={{ fontSize: '0.875rem', color: '#666' }}>
+          Showing {Math.min(pagination.offset + 1, pagination.total)}-{Math.min(pagination.offset + itemsPerPage, pagination.total)} of {pagination.total} transactions
+        </div>
+        
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <button
+            onClick={() => handlePageChange(currentPageNum - 1)}
+            disabled={currentPageNum <= 1}
+            style={{
+              padding: '0.5rem 1rem',
+              border: '1px solid #e1e8f7',
+              borderRadius: '6px',
+              background: currentPageNum <= 1 ? '#f8f9fa' : 'white',
+              color: currentPageNum <= 1 ? '#999' : '#2c3e50',
+              cursor: currentPageNum <= 1 ? 'not-allowed' : 'pointer',
+              fontSize: '0.875rem',
+              fontWeight: '500'
+            }}
+          >
+            ← Previous
+          </button>
+          
+          <span style={{ 
+            fontSize: '0.875rem', 
+            color: '#666',
+            margin: '0 1rem'
+          }}>
+            Page {currentPageNum} of {totalPages}
+          </span>
+          
+          <button
+            onClick={() => handlePageChange(currentPageNum + 1)}
+            disabled={!pagination.hasMore}
+            style={{
+              padding: '0.5rem 1rem',
+              border: '1px solid #e1e8f7',
+              borderRadius: '6px',
+              background: !pagination.hasMore ? '#f8f9fa' : 'white',
+              color: !pagination.hasMore ? '#999' : '#2c3e50',
+              cursor: !pagination.hasMore ? 'not-allowed' : 'pointer',
+              fontSize: '0.875rem',
+              fontWeight: '500'
+            }}
+          >
+            Next →
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (activityLoading) {
@@ -139,6 +254,156 @@ function ActivityPage({ selectedYear, onUserChange }) {
         </p>
       </div>
 
+      {/* Search and Filter Controls */}
+      <div className="card" style={{
+        background: 'white',
+        borderRadius: '12px',
+        padding: '1.5rem',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+        border: '1px solid #f0f0f0',
+        marginBottom: '2rem'
+      }}>
+        <h3 style={{
+          margin: '0 0 1rem 0',
+          fontSize: '1.2rem',
+          fontWeight: '600',
+          color: '#2c3e50',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem'
+        }}>
+          <span>🔍</span>
+          Search & Filter
+        </h3>
+        
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '1rem',
+          marginBottom: '1rem'
+        }}>
+          <div>
+            <label style={{
+              display: 'block',
+              fontSize: '0.875rem',
+              fontWeight: '500',
+              color: '#2c3e50',
+              marginBottom: '0.5rem'
+            }}>
+              From User
+            </label>
+            <input
+              type="text"
+              value={fromUser}
+              onChange={(e) => setFromUser(e.target.value)}
+              placeholder="Search by sender..."
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '2px solid #e9ecef',
+                borderRadius: '8px',
+                fontSize: '1rem',
+                backgroundColor: 'white',
+                color: '#495057'
+              }}
+              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+            />
+          </div>
+          
+          <div>
+            <label style={{
+              display: 'block',
+              fontSize: '0.875rem',
+              fontWeight: '500',
+              color: '#2c3e50',
+              marginBottom: '0.5rem'
+            }}>
+              To User
+            </label>
+            <input
+              type="text"
+              value={toUser}
+              onChange={(e) => setToUser(e.target.value)}
+              placeholder="Search by receiver..."
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '2px solid #e9ecef',
+                borderRadius: '8px',
+                fontSize: '1rem',
+                backgroundColor: 'white',
+                color: '#495057'
+              }}
+              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+            />
+          </div>
+        </div>
+        
+        <div style={{
+          display: 'flex',
+          gap: '1rem',
+          alignItems: 'center',
+          flexWrap: 'wrap'
+        }}>
+          <button
+            onClick={handleSearch}
+            style={{
+              padding: '0.75rem 1.5rem',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '0.875rem',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}
+          >
+            <span>🔍</span>
+            Search
+          </button>
+          
+          <button
+            onClick={handleClearSearch}
+            style={{
+              padding: '0.75rem 1.5rem',
+              background: '#f8f9fa',
+              color: '#6c757d',
+              border: '1px solid #e9ecef',
+              borderRadius: '8px',
+              fontSize: '0.875rem',
+              fontWeight: '500',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}
+          >
+            <span>🗑️</span>
+            Clear
+          </button>
+          
+          {(searchFromUser || searchToUser) && (
+            <div style={{
+              background: '#e8f5e8',
+              color: '#155724',
+              padding: '0.5rem 1rem',
+              borderRadius: '20px',
+              fontSize: '0.875rem',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}>
+              <span>✅</span>
+              Active filters: {[searchFromUser && `from: ${searchFromUser}`, searchToUser && `to: ${searchToUser}`].filter(Boolean).join(', ')}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Activity Feed */}
       <div className="card" style={{
         background: 'white',
@@ -173,7 +438,7 @@ function ActivityPage({ selectedYear, onUserChange }) {
             borderRadius: '12px',
             fontWeight: '500'
           }}>
-            {recentActivity.length} recent activities
+            {pagination.total ? `${pagination.total} total activities` : `${recentActivity.length} activities`}
           </div>
         </div>
 
@@ -340,6 +605,9 @@ function ActivityPage({ selectedYear, onUserChange }) {
         }}>
           💡 Click on usernames to view their detailed statistics
         </div>
+
+        {/* Pagination Controls */}
+        {renderPaginationControls()}
       </div>
 
       <style>

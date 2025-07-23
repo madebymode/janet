@@ -1,8 +1,17 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 
 function LeaderboardTable({ data = [], loading, error, onUserClick, showClickHint = false }) {
-  // Mobile-responsive styles
-  const isMobile = window.innerWidth <= 768
+  // Mobile-responsive state
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+  
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768)
+    }
+    
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
   
   const mobileStyles = {
     table: {
@@ -15,20 +24,24 @@ function LeaderboardTable({ data = [], loading, error, onUserClick, showClickHin
   }
   if (loading) {
     return (
-      <div className="table-container" style={{ overflowX: 'auto' }}>
+      <div className="table-container" style={{ 
+        overflowX: 'auto',
+        margin: isMobile ? '0 -0.5rem' : '0',
+        padding: isMobile ? '0 0.5rem' : '0'
+      }}>
         <table className="table" style={{
           width: '100%',
           borderCollapse: 'collapse',
-          fontSize: '0.9rem'
+          ...mobileStyles.table
         }}>
           <thead>
             <tr style={{
               background: '#f8f9fa',
               borderBottom: '2px solid #e9ecef'
             }}>
-              <th style={{ padding: '1rem 0.75rem', textAlign: 'left', fontWeight: '600', color: '#495057' }}>Rank</th>
-              <th style={{ padding: '1rem 0.75rem', textAlign: 'left', fontWeight: '600', color: '#495057' }}>User</th>
-              <th style={{ padding: '1rem 0.75rem', textAlign: 'right', fontWeight: '600', color: '#495057' }}>Total Points</th>
+              <th style={{ padding: mobileStyles.headerPadding, textAlign: 'left', fontWeight: '600', color: '#495057' }}>Rank</th>
+              <th style={{ padding: mobileStyles.headerPadding, textAlign: 'left', fontWeight: '600', color: '#495057' }}>User</th>
+              <th style={{ padding: mobileStyles.headerPadding, textAlign: 'right', fontWeight: '600', color: '#495057' }}>Total Points</th>
             </tr>
           </thead>
           <tbody>
@@ -64,30 +77,34 @@ function LeaderboardTable({ data = [], loading, error, onUserClick, showClickHin
           background: '#e3f2fd',
           border: '1px solid #2196f3',
           borderRadius: '8px',
-          padding: '0.75rem',
+          padding: isMobile ? '0.5rem' : '0.75rem',
           marginBottom: '1rem',
-          fontSize: '0.875rem',
+          fontSize: isMobile ? '0.8rem' : '0.875rem',
           color: '#1976d2',
           textAlign: 'center'
         }}>
-          💡 Click on any user to view their detailed statistics
+          💡 {isMobile ? 'Tap any user for details' : 'Click on any user to view their detailed statistics'}
         </div>
       )}
       
-      <div className="table-container" style={{ overflowX: 'auto' }}>
+      <div className="table-container" style={{ 
+        overflowX: 'auto',
+        margin: isMobile ? '0 -0.5rem' : '0',
+        padding: isMobile ? '0 0.5rem' : '0'
+      }}>
         <table className="table" style={{
           width: '100%',
           borderCollapse: 'collapse',
-          fontSize: '0.9rem'
+          ...mobileStyles.table
         }}>
           <thead>
             <tr style={{
               background: '#f8f9fa',
               borderBottom: '2px solid #e9ecef'
             }}>
-              <th style={{ padding: '1rem 0.75rem', textAlign: 'left', fontWeight: '600', color: '#495057' }}>Rank</th>
-              <th style={{ padding: '1rem 0.75rem', textAlign: 'left', fontWeight: '600', color: '#495057' }}>User</th>
-              <th style={{ padding: '1rem 0.75rem', textAlign: 'right', fontWeight: '600', color: '#495057' }}>Total Points</th>
+              <th style={{ padding: mobileStyles.headerPadding, textAlign: 'left', fontWeight: '600', color: '#495057' }}>Rank</th>
+              <th style={{ padding: mobileStyles.headerPadding, textAlign: 'left', fontWeight: '600', color: '#495057' }}>User</th>
+              <th style={{ padding: mobileStyles.headerPadding, textAlign: 'right', fontWeight: '600', color: '#495057' }}>Total Points</th>
             </tr>
           </thead>
           <tbody>
@@ -121,7 +138,8 @@ function LeaderboardTable({ data = [], loading, error, onUserClick, showClickHin
                     style={{
                       borderBottom: '1px solid #f0f0f0',
                       cursor: onUserClick ? 'pointer' : 'default',
-                      transition: 'background-color 0.2s ease'
+                      transition: 'background-color 0.2s ease',
+                      minHeight: isMobile ? '56px' : 'auto'
                     }}
                     onClick={() => onUserClick && onUserClick(username)}
                     onMouseEnter={(e) => {
@@ -135,34 +153,35 @@ function LeaderboardTable({ data = [], loading, error, onUserClick, showClickHin
                       }
                     }}
                   >
-                    <td style={{ padding: '1rem 0.75rem' }}>
+                    <td style={{ padding: mobileStyles.cellPadding }}>
                       <div style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '0.5rem'
+                        gap: isMobile ? '0.25rem' : '0.5rem'
                       }}>
                         {rank <= 3 && (
-                          <span style={{ fontSize: '1.2rem' }}>
+                          <span style={{ fontSize: isMobile ? '1rem' : '1.2rem' }}>
                             {rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'}
                           </span>
                         )}
                         <span style={{
                           fontWeight: rank <= 3 ? '600' : '500',
-                          color: rank <= 3 ? '#2c3e50' : '#666'
+                          color: rank <= 3 ? '#2c3e50' : '#666',
+                          fontSize: isMobile ? '0.8rem' : '1rem'
                         }}>
                           #{rank}
                         </span>
                       </div>
                     </td>
-                    <td style={{ padding: '1rem 0.75rem' }}>
+                    <td style={{ padding: mobileStyles.cellPadding }}>
                       <div style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '0.75rem'
+                        gap: isMobile ? '0.5rem' : '0.75rem'
                       }}>
                         <div style={{
-                          width: '40px',
-                          height: '40px',
+                          width: mobileStyles.avatarSize,
+                          height: mobileStyles.avatarSize,
                           borderRadius: '50%',
                           background: avatarUrl ? `url(${avatarUrl})` : '#667eea linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                           backgroundSize: 'cover',
@@ -172,36 +191,43 @@ function LeaderboardTable({ data = [], loading, error, onUserClick, showClickHin
                           justifyContent: 'center',
                           color: 'white',
                           fontWeight: '600',
-                          fontSize: '0.9rem',
+                          fontSize: isMobile ? '0.75rem' : '0.9rem',
                           flexShrink: 0
                         }}>
                           {!avatarUrl && (displayName.charAt(0).toUpperCase())}
                         </div>
-                        <div>
+                        <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{
                             fontWeight: '600',
                             color: '#2c3e50',
-                            fontSize: '0.95rem'
+                            fontSize: isMobile ? '0.85rem' : '0.95rem',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
                           }}>
-                            {displayName.length > 18 ? `${displayName.substring(0, 18)}...` : displayName}
+                            {displayName.length > mobileStyles.maxNameLength ? `${displayName.substring(0, mobileStyles.maxNameLength)}...` : displayName}
                           </div>
                           {displayName !== username && (
                             <div style={{
-                              fontSize: '0.8rem',
+                              fontSize: isMobile ? '0.7rem' : '0.8rem',
                               color: '#999',
-                              fontStyle: 'italic'
+                              fontStyle: 'italic',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
                             }}>
-                              @{username}
+                              @{username.length > (mobileStyles.maxNameLength - 2) ? `${username.substring(0, mobileStyles.maxNameLength - 2)}...` : username}
                             </div>
                           )}
                         </div>
                       </div>
                     </td>
                     <td style={{ 
-                      padding: '1rem 0.75rem', 
+                      padding: mobileStyles.cellPadding, 
                       textAlign: 'right',
                       fontWeight: '600',
-                      color: totalPoints >= 0 ? '#27ae60' : '#e74c3c'
+                      color: totalPoints >= 0 ? '#27ae60' : '#e74c3c',
+                      fontSize: isMobile ? '0.85rem' : '1rem'
                     }}>
                       {isNaN(totalPoints) ? '0' : totalPoints.toLocaleString()}
                     </td>

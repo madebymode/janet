@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"embed"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -15,7 +13,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -84,7 +81,6 @@ type Config struct {
 	ReactjiEnabled   bool   `json:"reactjiEnabled"`
 
 	// Web server
-	WebPassword   string `json:"webPassword"`
 	WebListenAddr string `json:"webListenAddr"`
 	WebPublicURL  string `json:"webPublicURL"`
 	BotEnabled    bool   `json:"botEnabled"`
@@ -109,8 +105,6 @@ type Server struct {
 	startTime time.Time
 	router    *mux.Router
 	templates map[string]*template.Template
-	sessions  map[string]time.Time
-	mutex     sync.RWMutex
 }
 
 // NewServer creates a new janet server
@@ -158,7 +152,6 @@ func NewServer(configPath string) (*Server, error) {
 		db:        v2db,
 		logger:    logger,
 		startTime: time.Now(),
-		sessions:  make(map[string]time.Time),
 	}
 
 	// Setup templates
@@ -191,11 +184,6 @@ func (s *Server) setupTemplates() error {
 		"web/templates/index.html",
 		"web/templates/leaderboard.html",
 		"web/templates/stats.html",
-		"web/templates/admin/login.html",
-		"web/templates/admin/dashboard.html",
-		"web/templates/admin/config.html",
-		"web/templates/admin/backfill.html",
-		"web/templates/admin/users.html",
 	}
 
 	for _, file := range templateFiles {
@@ -207,41 +195,18 @@ func (s *Server) setupTemplates() error {
 		name := filepath.Base(file)
 		name = strings.TrimSuffix(name, filepath.Ext(name))
 
-		var tmpl *template.Template
-		if strings.Contains(file, "/admin/") && name != "login" {
-			// Admin templates use base template
-			baseTmpl, err := webFS.ReadFile("web/templates/base.html")
-			if err != nil {
-				return fmt.Errorf("failed to read base template: %w", err)
-			}
-			tmpl, err = template.New("base").Parse(string(baseTmpl))
-			if err != nil {
-				return fmt.Errorf("failed to parse base template: %w", err)
-			}
-			tmpl, err = tmpl.Parse(string(content))
-			if err != nil {
-				return fmt.Errorf("failed to parse template %s: %w", file, err)
-			}
-		} else if name == "login" {
-			// Login template is standalone
-			tmpl, err = template.New(name).Parse(string(content))
-			if err != nil {
-				return fmt.Errorf("failed to parse template %s: %w", file, err)
-			}
-		} else {
-			// Public templates use base template
-			baseTmpl, err := webFS.ReadFile("web/templates/base.html")
-			if err != nil {
-				return fmt.Errorf("failed to read base template: %w", err)
-			}
-			tmpl, err = template.New("base").Parse(string(baseTmpl))
-			if err != nil {
-				return fmt.Errorf("failed to parse base template: %w", err)
-			}
-			tmpl, err = tmpl.Parse(string(content))
-			if err != nil {
-				return fmt.Errorf("failed to parse template %s: %w", file, err)
-			}
+		// Public templates use base template
+		baseTmpl, err := webFS.ReadFile("web/templates/base.html")
+		if err != nil {
+			return fmt.Errorf("failed to read base template: %w", err)
+		}
+		tmpl, err := template.New("base").Parse(string(baseTmpl))
+		if err != nil {
+			return fmt.Errorf("failed to parse base template: %w", err)
+		}
+		tmpl, err = tmpl.Parse(string(content))
+		if err != nil {
+			return fmt.Errorf("failed to parse template %s: %w", file, err)
 		}
 
 		s.templates[name] = tmpl
@@ -275,35 +240,6 @@ func (s *Server) setupRoutes() {
 	api.HandleFunc("/user/{username}", s.handleAPIUser).Methods("GET")
 	api.HandleFunc("/user/{username}/{year}", s.handleAPIUserByYear).Methods("GET")
 	api.HandleFunc("/user/{username}/{year}/points-over-time", s.handleAPIUserPointsOverTime).Methods("GET")
-
-	// Admin API routes (authentication handled by middleware)
-	adminAPI := s.router.PathPrefix("/admin/api").Subrouter()
-	adminAPI.Use(s.requireAuthMiddleware)
-	adminAPI.HandleFunc("/config", s.handleAdminAPIConfig).Methods("GET", "POST")
-	adminAPI.HandleFunc("/config/reset", s.handleAdminAPIConfigReset).Methods("POST")
-	adminAPI.HandleFunc("/status", s.handleAdminAPIStatus).Methods("GET")
-	adminAPI.HandleFunc("/restart", s.handleAdminAPIRestart).Methods("POST")
-	adminAPI.HandleFunc("/export", s.handleAdminAPIExport).Methods("GET")
-	adminAPI.HandleFunc("/data", s.handleAdminAPIDeleteData).Methods("DELETE")
-	adminAPI.HandleFunc("/backfill", s.handleAdminAPIBackfill).Methods("POST")
-	adminAPI.HandleFunc("/backfill/bulk", s.handleAdminAPIBackfillBulk).Methods("POST")
-	adminAPI.HandleFunc("/backfill/history", s.handleAdminAPIBackfillHistory).Methods("GET")
-	adminAPI.HandleFunc("/backfill/check", s.handleAdminAPIBackfillCheck).Methods("POST")
-	adminAPI.HandleFunc("/channels", s.handleAdminAPIChannels).Methods("GET")
-	adminAPI.HandleFunc("/users", s.handleAdminAPIUsers).Methods("GET")
-	adminAPI.HandleFunc("/users/{username}/details", s.handleAdminAPIUserDetails).Methods("GET")
-	adminAPI.HandleFunc("/users/adjust-points", s.handleAdminAPIAdjustPoints).Methods("POST")
-	adminAPI.HandleFunc("/users/merge", s.handleAdminAPIMergeUsers).Methods("POST")
-	adminAPI.HandleFunc("/users/{username}", s.handleAdminAPIDeleteUser).Methods("DELETE")
-	adminAPI.HandleFunc("/blacklist", s.handleAdminAPIBlacklist).Methods("GET", "POST")
-	adminAPI.HandleFunc("/blacklist/{username}", s.handleAdminAPIBlacklistDelete).Methods("DELETE")
-	adminAPI.HandleFunc("/aliases", s.handleAdminAPIAliases).Methods("GET", "POST")
-	adminAPI.HandleFunc("/aliases/{alias}", s.handleAdminAPIAliasDelete).Methods("DELETE")
-	adminAPI.HandleFunc("/rebuild-summary", s.handleAdminAPIRebuildSummary).Methods("POST")
-
-	// Admin login endpoint (special handling for POST)
-	s.router.HandleFunc("/admin/login", s.handleAdminLogin).Methods("GET", "POST")
-	s.router.HandleFunc("/admin/logout", s.handleAdminLogout).Methods("POST")
 
 	// Catch-all route for React app (must be last)
 	s.router.PathPrefix("/").HandlerFunc(s.handleReactApp).Methods("GET")
@@ -451,75 +387,11 @@ func (s *Server) Start() error {
 // Template data structures
 type TemplateData struct {
 	Title     string
-	IsAdmin   bool
 	BotOnline bool
 	Version   string
 	ExtraJS   []string
 	Data      interface{}
 	Error     string
-}
-
-// Auth helpers
-func (s *Server) generateSessionToken() string {
-	hash := sha256.Sum256([]byte(fmt.Sprintf("%d-%s", time.Now().UnixNano(), s.config.WebPassword)))
-	return hex.EncodeToString(hash[:])
-}
-
-func (s *Server) isAuthenticated(r *http.Request) bool {
-	cookie, err := r.Cookie("janet_session")
-	if err != nil {
-		return false
-	}
-
-	s.mutex.RLock()
-	expiry, exists := s.sessions[cookie.Value]
-	s.mutex.RUnlock()
-
-	if !exists || time.Now().After(expiry) {
-		return false
-	}
-
-	return true
-}
-
-func (s *Server) isBasicAuthenticated(r *http.Request) bool {
-	username, password, ok := r.BasicAuth()
-	if !ok {
-		return false
-	}
-
-	// Check against configured admin credentials
-	// For now, we'll use "admin" as username and the web password from config
-	return username == "admin" && password == s.config.WebPassword
-}
-
-func (s *Server) requireAuth(handler http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.isAuthenticated(r) {
-			http.Redirect(w, r, "/admin/login", http.StatusFound)
-			return
-		}
-		handler(w, r)
-	}
-}
-
-func (s *Server) requireAuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if this is a request from the React dashboard (has cookies)
-		// If so, use cookie auth, otherwise use basic auth
-		if s.isAuthenticated(r) {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Fallback to basic auth for direct API access
-		if !s.isBasicAuthenticated(r) {
-			w.Header().Set("WWW-Authenticate", `Basic realm="Admin Area"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // Default configuration
@@ -569,20 +441,11 @@ func loadConfig(configPath string) (*Config, error) {
 	if val := os.Getenv("JANET_SLACK_SOCKET_TOKEN"); val != "" {
 		config.SlackSocketToken = val
 	}
-	if val := os.Getenv("JANET_WEB_PASSWORD"); val != "" {
-		config.WebPassword = val
-	}
 	if val := os.Getenv("JANET_WEB_LISTEN_ADDR"); val != "" {
 		config.WebListenAddr = val
 	}
 	if val := os.Getenv("JANET_BOT_ENABLED"); val != "" {
 		config.BotEnabled = strings.ToLower(val) == "true" || val == "1" || strings.ToLower(val) == "yes"
-	}
-
-	// Generate a default password if none provided
-	if config.WebPassword == "" {
-		config.WebPassword = "admin"
-		stdlog.Println("WARNING: Using default password 'admin'. Set JANET_WEB_PASSWORD environment variable for security.")
 	}
 
 	return config, nil

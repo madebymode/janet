@@ -17,17 +17,9 @@
     <nav class="nav">
         <div class="container">
             <ul>
-                {{if .IsAdmin}}
-                <li><a href="/admin/">Dashboard</a></li>
-                <li><a href="/admin/config">Configuration</a></li>
-                <li><a href="/admin/backfill">Backfill</a></li>
-                <li><a href="/admin/users">Users</a></li>
-                <li><a href="/">Public View</a></li>
-                {{else}}
                 <li><a href="/">Home</a></li>
                 <li><a href="/leaderboard">Leaderboard</a></li>
                 <li><a href="/stats">Statistics</a></li>
-                {{end}}
             </ul>
         </div>
     </nav>

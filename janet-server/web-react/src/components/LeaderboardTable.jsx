@@ -1,6 +1,18 @@
 import React from 'react'
 
 function LeaderboardTable({ data = [], loading, error, onUserClick, showClickHint = false }) {
+  // Mobile-responsive styles
+  const isMobile = window.innerWidth <= 768
+  
+  const mobileStyles = {
+    table: {
+      fontSize: isMobile ? '0.8rem' : '0.9rem'
+    },
+    headerPadding: isMobile ? '0.75rem 0.5rem' : '1rem 0.75rem',
+    cellPadding: isMobile ? '0.75rem 0.5rem' : '1rem 0.75rem',
+    avatarSize: isMobile ? '32px' : '40px',
+    maxNameLength: isMobile ? 12 : 18
+  }
   if (loading) {
     return (
       <div className="table-container" style={{ overflowX: 'auto' }}>
@@ -17,9 +29,6 @@ function LeaderboardTable({ data = [], loading, error, onUserClick, showClickHin
               <th style={{ padding: '1rem 0.75rem', textAlign: 'left', fontWeight: '600', color: '#495057' }}>Rank</th>
               <th style={{ padding: '1rem 0.75rem', textAlign: 'left', fontWeight: '600', color: '#495057' }}>User</th>
               <th style={{ padding: '1rem 0.75rem', textAlign: 'right', fontWeight: '600', color: '#495057' }}>Total Points</th>
-              <th style={{ padding: '1rem 0.75rem', textAlign: 'right', fontWeight: '600', color: '#495057' }}>Given</th>
-              <th style={{ padding: '1rem 0.75rem', textAlign: 'right', fontWeight: '600', color: '#495057' }}>Received</th>
-              <th style={{ padding: '1rem 0.75rem', textAlign: 'center', fontWeight: '600', color: '#495057' }}>Activity</th>
             </tr>
           </thead>
           <tbody>
@@ -79,9 +88,6 @@ function LeaderboardTable({ data = [], loading, error, onUserClick, showClickHin
               <th style={{ padding: '1rem 0.75rem', textAlign: 'left', fontWeight: '600', color: '#495057' }}>Rank</th>
               <th style={{ padding: '1rem 0.75rem', textAlign: 'left', fontWeight: '600', color: '#495057' }}>User</th>
               <th style={{ padding: '1rem 0.75rem', textAlign: 'right', fontWeight: '600', color: '#495057' }}>Total Points</th>
-              <th style={{ padding: '1rem 0.75rem', textAlign: 'right', fontWeight: '600', color: '#495057' }}>Given</th>
-              <th style={{ padding: '1rem 0.75rem', textAlign: 'right', fontWeight: '600', color: '#495057' }}>Received</th>
-              <th style={{ padding: '1rem 0.75rem', textAlign: 'center', fontWeight: '600', color: '#495057' }}>Activity</th>
             </tr>
           </thead>
           <tbody>
@@ -199,36 +205,7 @@ function LeaderboardTable({ data = [], loading, error, onUserClick, showClickHin
                     }}>
                       {isNaN(totalPoints) ? '0' : totalPoints.toLocaleString()}
                     </td>
-                    <td style={{ 
-                      padding: '1rem 0.75rem', 
-                      textAlign: 'right',
-                      color: '#666'
-                    }}>
-                      {isNaN(pointsGiven) ? '0' : pointsGiven.toLocaleString()}
-                    </td>
-                    <td style={{ 
-                      padding: '1rem 0.75rem', 
-                      textAlign: 'right',
-                      color: '#666'
-                    }}>
-                      {isNaN(pointsReceived) ? '0' : pointsReceived.toLocaleString()}
-                    </td>
-                    <td style={{ 
-                      padding: '1rem 0.75rem', 
-                      textAlign: 'center'
-                    }}>
-                      <div style={{
-                        background: transactions > 50 ? '#e8f5e8' : transactions > 20 ? '#fff3cd' : '#f8d7da',
-                        color: transactions > 50 ? '#155724' : transactions > 20 ? '#856404' : '#721c24',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '12px',
-                        fontSize: '0.8rem',
-                        fontWeight: '500',
-                        display: 'inline-block'
-                      }}>
-                        {isNaN(transactions) ? '0' : transactions}
-                      </div>
-                    </td>
+
                   </tr>
                 )
               })

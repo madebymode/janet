@@ -119,29 +119,45 @@ func (h *Handler) HandleAPIRecentActivity(w http.ResponseWriter, r *http.Request
 
 	var activities []map[string]interface{}
 	for rows.Next() {
-		var fromUserResult, toUserResult, reason, transactionType, emojiName, channelID, messageID string
-		var points int
-		var timestamp time.Time
+	    var (
+	        fromUserResult, toUserResult string
+	        points                       int
+	        reason, transactionType      *string
+	        emojiName, channelID         *string
+	        messageID                    *string
+	        timestamp                    time.Time
+	    )
 
-		err := rows.Scan(&fromUserResult, &toUserResult, &points, &reason, &transactionType, 
-			&emojiName, &channelID, &messageID, &timestamp)
-		if err != nil {
-			h.logger.Err(err).Error("failed to scan activity row")
-			continue
-		}
+	    err := rows.Scan(
+	        &fromUserResult,
+	        &toUserResult,
+	        &points,
+	        &reason,
+	        &transactionType,
+	        &emojiName,
+	        &channelID,
+	        &messageID,
+	        &timestamp,
+	    )
+	    if err != nil {
+	        h.logger.Err(err).Error("failed to scan activity row")
+	        // decide: return 500 or keep continue
+	        continue
+	    }
 
-		activities = append(activities, map[string]interface{}{
-			"from":            fromUserResult,
-			"to":              toUserResult,
-			"points":          points,
-			"reason":          reason,
-			"transactionType": transactionType,
-			"emojiName":       emojiName,
-			"channelId":       channelID,
-			"messageId":       messageID,
-			"date":            timestamp.Format("2006-01-02T15:04:05Z07:00"),
-		})
+	    activities = append(activities, map[string]interface{}{
+	        "from":            fromUserResult,
+	        "to":              toUserResult,
+	        "points":          points,
+	        "reason":          reason,          // nil -> JSON null
+	        "transactionType": transactionType, // if this can't be NULL, keep string not *string
+	        "emojiName":       emojiName,
+	        "channelId":       channelID,
+	        "messageId":       messageID,
+	        "date":            timestamp.Format(time.RFC3339),
+	    })
 	}
+
 
 	// Get total count for pagination using parameterized query
 	var countQueryParts []string

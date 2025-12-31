@@ -175,6 +175,7 @@ func (s *BotService) initializeBot() error {
 		MaxPoints:           s.config.MaxPoints,
 		LeaderboardLimit:    s.config.LeaderboardLimit,
 		Log:                 s.logger.KV("component", "bot"),
+		UI:                  &janet.BlankUIProvider{},
 		DB:                  s.db,
 		UserBlacklist:       blacklistMap,
 		Reactji:             reactjiConfig,

@@ -25,7 +25,7 @@ var (
 		GivePoints:  karmaReg.MatchGive(),
 		TakePoints:  karmaReg.MatchTake(),
 		QueryPoints: karmaReg.MatchQuery(),
-		Leaderboard: regexp.MustCompile(`^goodplace? (?:leaderboard|top|highscores) ?(\d+)?$`),
+		Leaderboard: regexp.MustCompile(`^goodplace? (?:leaderboard|top|highscores)(?: (\d+))?(?: (all|\d{4}))?$`),
 		URL:         regexp.MustCompile(`^janet? (?:url|web|link)?$`),
 		SlackUser:   regexp.MustCompile(`^<@([A-Za-z\d]+)>$`),
 		Throwback:   karmaReg.MatchThrowback(),
@@ -951,15 +951,63 @@ func (b *Bot) printLeaderboard(ev *slack.MessageEvent) {
 	}
 
 	limit := b.Config.LeaderboardLimit
-	if match[1] != "" {
-		var err error
-		limit, err = strconv.Atoi(match[1])
-		if b.handleError(err, ev) {
-			return
+	yearParam := ""
+
+	// Handle ambiguous case: single number could be limit or year
+	// If match[1] is present but match[2] is empty, check if match[1] is a 4-digit year
+	if match[1] != "" && match[2] == "" {
+		// Check if it's a 4-digit number (year format)
+		if len(match[1]) == 4 {
+			// Treat as year
+			yearParam = match[1]
+		} else {
+			// Treat as limit
+			var err error
+			limit, err = strconv.Atoi(match[1])
+			if b.handleError(err, ev) {
+				return
+			}
 		}
+	} else {
+		// Both present or only match[2] present
+		if match[1] != "" {
+			var err error
+			limit, err = strconv.Atoi(match[1])
+			if b.handleError(err, ev) {
+				return
+			}
+		}
+		yearParam = match[2]
 	}
 
-	text := fmt.Sprintf("*top %d leaderboard*\n", limit)
+	// Parse year parameter
+	var board []*database.UserSummary
+	var err error
+	var yearText string
+
+	if yearParam == "" {
+		// No year specified, use current year
+		board, err = b.Config.DB.GetLeaderboardByCurrentYear(limit)
+		yearText = fmt.Sprintf("%d", time.Now().Year())
+	} else if yearParam == "all" {
+		// "all" specified, use cumulative/all-time
+		board, err = b.Config.DB.GetLeaderboardCumulative(limit)
+		yearText = "all-time"
+	} else {
+		// Specific year
+		year, parseErr := strconv.Atoi(yearParam)
+		if b.handleError(parseErr, ev) {
+			return
+		}
+		board, err = b.Config.DB.GetLeaderboardByYear(year, limit)
+		yearText = yearParam
+	}
+
+	if b.handleError(err, ev) {
+		return
+	}
+
+	text := fmt.Sprintf("*top %d leaderboard (%s)*\n", limit, yearText)
 
 	url, err := b.Config.UI.GetURL(fmt.Sprintf("/leaderboard/%d", limit))
 	if b.handleError(err, ev) {
@@ -967,11 +1015,6 @@ func (b *Bot) printLeaderboard(ev *slack.MessageEvent) {
 	}
 	if url != "" {
 		text = fmt.Sprintf("%s%s\n", text, url)
-	}
-
-	board, err := b.Config.DB.GetCurrentLeaderboard(limit)
-	if b.handleError(err, ev) {
-		return
 	}
 
 	for i, user := range board {

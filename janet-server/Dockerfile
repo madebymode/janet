@@ -37,8 +37,8 @@ RUN go build -mod=mod -ldflags="-w -s" -o janet-server-bin ./janet-server
 # Final image stage
 FROM alpine:latest
 
-# Install ca-certificates and tzdata for timezone support
-RUN apk add --no-cache ca-certificates tzdata
+# Install ca-certificates, tzdata, and tools for HEIC conversion
+RUN apk add --no-cache ca-certificates tzdata imagemagick libheif
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S janet && \

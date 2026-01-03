@@ -129,6 +129,10 @@ func (db *V2DB) GetPopularMessages(limit int, year int) ([]*PopularMessage, erro
 	return db.transactionService().GetPopularMessages(limit, year)
 }
 
+func (db *V2DB) GetPopularMessagesByUser(limit int, year int, username string) ([]*PopularMessage, error) {
+	return db.transactionService().GetPopularMessagesByUser(limit, year, username)
+}
+
 func (db *V2DB) UpdateChannelIDForMessage(messageID, channelID string) error {
 	return db.transactionService().UpdateChannelIDForMessage(messageID, channelID)
 }

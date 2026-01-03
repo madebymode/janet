@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -359,6 +360,12 @@ func (s *Service) getMessageImageURL(message slack.Message) (string, bool) {
 			continue
 		}
 		hasImage := true
+		if file.Mimetype == "image/heic" || file.Mimetype == "image/heif" {
+			if localURL := s.downloadSlackHeicAsJpeg(file); localURL != "" {
+				return localURL, hasImage
+			}
+			continue
+		}
 		if localURL := s.downloadSlackFile(file); localURL != "" {
 			return localURL, hasImage
 		}
@@ -383,9 +390,11 @@ func (s *Service) getMessageImageURL(message slack.Message) (string, bool) {
 func (s *Service) getMessageAttachment(message slack.Message) (string, string, bool) {
 	for _, file := range message.Files {
 		if strings.HasPrefix(file.Mimetype, "image/") {
-			continue
+			if file.Mimetype != "image/heic" && file.Mimetype != "image/heif" {
+				continue
+			}
 		}
-		if !strings.HasPrefix(file.Mimetype, "video/") && !strings.HasPrefix(file.Mimetype, "audio/") {
+		if !strings.HasPrefix(file.Mimetype, "video/") && !strings.HasPrefix(file.Mimetype, "audio/") && !strings.HasPrefix(file.Mimetype, "image/") {
 			continue
 		}
 		hasAttachment := true
@@ -428,6 +437,59 @@ func (s *Service) downloadSlackFile(file slack.File) string {
 	}
 
 	return localURL
+}
+
+func (s *Service) downloadSlackHeicAsJpeg(file slack.File) string {
+	if s.attachmentsDir == "" || s.attachmentsURL == "" {
+		return ""
+	}
+	if s.slackToken == "" {
+		return ""
+	}
+
+	downloadURL := file.URLPrivateDownload
+	if downloadURL == "" {
+		downloadURL = file.URLPrivate
+	}
+	if downloadURL == "" {
+		return ""
+	}
+
+	baseName := file.ID
+	if baseName == "" {
+		return ""
+	}
+
+	heicName := baseName + ".heic"
+	heicPath := filepath.Join(s.attachmentsDir, heicName)
+	jpgName := baseName + ".jpg"
+	jpgPath := filepath.Join(s.attachmentsDir, jpgName)
+
+	if _, err := os.Stat(jpgPath); err == nil {
+		return s.attachmentsURL + "/" + jpgName
+	}
+
+	if _, err := os.Stat(heicPath); err != nil {
+		if _, err := s.downloadFile(downloadURL, heicName); err != nil {
+			return ""
+		}
+	}
+
+	if err := convertHeicToJpeg(heicPath, jpgPath); err != nil {
+		return ""
+	}
+
+	return s.attachmentsURL + "/" + jpgName
+}
+
+func convertHeicToJpeg(sourcePath, targetPath string) error {
+	if _, err := exec.LookPath("magick"); err == nil {
+		return exec.Command("magick", sourcePath, targetPath).Run()
+	}
+	if _, err := exec.LookPath("convert"); err == nil {
+		return exec.Command("convert", sourcePath, targetPath).Run()
+	}
+	return fmt.Errorf("no heic converter available")
 }
 
 func countMessageReactions(message slack.Message) int {

@@ -39,11 +39,15 @@ function Dashboard() {
 useEffect(() => {
   const base = activeTab === 'overview' ? '/overview' : `/${activeTab}`;
   const yrSeg = selectedYear === 0 ? 'all' : selectedYear;
+  const searchSuffix = activeTab === 'popular' ? location.search : '';
   const path = activeTab === 'users' && selectedUser
                  ? `${base}/${yrSeg}/${selectedUser}`
                  : `${base}/${yrSeg}`;
-  if (location.pathname !== path) navigate(path, { replace: true });
-}, [activeTab, selectedYear, selectedUser, navigate, location.pathname]);
+  const fullPath = `${path}${searchSuffix}`;
+  if (location.pathname + location.search !== fullPath) {
+    navigate(fullPath, { replace: true });
+  }
+}, [activeTab, selectedYear, selectedUser, navigate, location.pathname, location.search]);
 
 // Sync URL → state (handles browser navigation)
 useEffect(() => {
@@ -55,7 +59,9 @@ useEffect(() => {
     yearVal = isNaN(parsed) ? new Date().getFullYear() : parsed;
   }
   if (yearVal !== selectedYear) setSelectedYear(yearVal);
-  if (urlUsername !== selectedUser) setSelectedUser(urlUsername || '');
+  if (location.pathname.includes('/users')) {
+    if (urlUsername !== selectedUser) setSelectedUser(urlUsername || '');
+  }
 
   const newTab = getCurrentTab();
   if (newTab !== activeTab) setActiveTab(newTab);

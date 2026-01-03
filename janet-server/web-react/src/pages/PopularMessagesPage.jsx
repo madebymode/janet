@@ -1,7 +1,110 @@
 import React from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 
+function LazyMedia({ as, src, mime, alt, className, style }) {
+  const [isVisible, setIsVisible] = React.useState(false)
+  const ref = React.useRef(null)
+
+  React.useEffect(() => {
+    const node = ref.current
+    if (!node) return undefined
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setIsVisible(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '200px 0px' }
+    )
+
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  if (as === 'img') {
+    return (
+      <img
+        ref={ref}
+        src={isVisible ? src : undefined}
+        alt={alt}
+        className={className}
+        style={style}
+        loading="lazy"
+      />
+    )
+  }
+
+  if (as === 'video') {
+    return (
+      <video
+        ref={ref}
+        controls
+        preload="none"
+        src={isVisible ? src : undefined}
+        className={className}
+        style={style}
+      />
+    )
+  }
+
+  if (as === 'audio') {
+    return (
+      <audio
+        ref={ref}
+        controls
+        preload="none"
+        src={isVisible ? src : undefined}
+        className={className}
+        style={style}
+      />
+    )
+  }
+
+  return null
+}
+
 function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const page = Math.max(0, parseInt(searchParams.get('page') || '0', 10) || 0)
+  const minReactions = Math.max(0, parseInt(searchParams.get('min_reactions') || '0', 10) || 0)
+  const mediaOnly = searchParams.get('media') === '1'
+  const userFilter = searchParams.get('user') || ''
+  const pageSize = 50
+
+  React.useEffect(() => {
+    if (userFilter !== selectedUser) {
+      onUserChange(userFilter)
+    }
+  }, [userFilter, selectedUser, onUserChange])
+
+  const updateSearchParams = (updates) => {
+    const next = new URLSearchParams(searchParams)
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === null || value === '' || value === false || value === 0) {
+        next.delete(key)
+      } else {
+        next.set(key, String(value))
+      }
+    })
+    setSearchParams(next)
+  }
+
+  const handleUserFilterChange = (value) => {
+    updateSearchParams({ user: value || null, page: 0 })
+    onUserChange(value)
+  }
+
+  const handleMinReactionsChange = (value) => {
+    updateSearchParams({ min_reactions: value > 0 ? value : null, page: 0 })
+  }
+
+  const handleMediaOnlyChange = (value) => {
+    updateSearchParams({ media: value ? 1 : null, page: 0 })
+  }
+
   const { data: leaderboard } = useApi(
     selectedYear === 0
       ? '/api/leaderboard?limit=100'
@@ -10,15 +113,14 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
 
   const { data: messages, loading, error } = useApi(
     selectedYear !== null
-      ? `/api/stats/popular-messages?limit=200&year=${selectedYear === 0 ? '' : selectedYear}`
+      ? `/api/stats/popular-messages?limit=${pageSize}&offset=${page * pageSize}&year=${selectedYear === 0 ? '' : selectedYear}&include_meta=1${userFilter ? `&user=${userFilter}` : ''}${minReactions > 0 ? `&min_reactions=${minReactions}` : ''}${mediaOnly ? '&has_media=1' : ''}`
       : null,
-    [selectedYear]
+    [selectedYear, userFilter, page, minReactions, mediaOnly]
   )
 
-  const filteredMessages = React.useMemo(() => {
-    if (!messages || !selectedUser) return messages
-    return messages.filter((message) => message.author_name === selectedUser)
-  }, [messages, selectedUser])
+  const list = messages?.items || messages
+  const totalCount = messages?.total || (list ? list.length : 0)
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
 
   if (loading) {
     return (
@@ -60,22 +162,8 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
     )
   }
 
-  if (!messages || messages.length === 0) {
-    return (
-      <div style={{
-        textAlign: 'center',
-        padding: '3rem',
-        background: '#f9f9f9',
-        borderRadius: '12px',
-        margin: '1rem 0'
-      }}>
-        <p style={{ fontSize: '3rem', margin: '0 0 1rem 0' }}>📭</p>
-        <p style={{ color: '#666', margin: 0 }}>No popular messages found for this period</p>
-      </div>
-    )
-  }
-
-  if (filteredMessages && filteredMessages.length === 0) {
+  if (!list || list.length === 0) {
+    const filterLabel = userFilter ? `@${userFilter}` : 'this period'
     return (
       <div style={{
         textAlign: 'center',
@@ -86,7 +174,7 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
       }}>
         <p style={{ fontSize: '3rem', margin: '0 0 1rem 0' }}>🧵</p>
         <p style={{ color: '#666', margin: 0 }}>
-          No popular messages for {selectedUser ? `@${selectedUser}` : 'this period'}
+          No popular messages for {filterLabel}
         </p>
       </div>
     )
@@ -144,8 +232,8 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
         }}>
           <div style={{ flex: 1, minWidth: '200px' }}>
             <select
-              value={selectedUser}
-              onChange={(e) => onUserChange(e.target.value)}
+              value={userFilter}
+              onChange={(e) => handleUserFilterChange(e.target.value)}
               style={{
                 width: '100%',
                 padding: '0.75rem',
@@ -165,7 +253,41 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
               ))}
             </select>
           </div>
-          {selectedUser && (
+          <div style={{ minWidth: '140px' }}>
+            <input
+              type="number"
+              min="0"
+              value={minReactions}
+              onChange={(e) => handleMinReactionsChange(parseInt(e.target.value, 10) || 0)}
+              placeholder="Min reactions"
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '2px solid #e9ecef',
+                borderRadius: '8px',
+                fontSize: '1rem',
+                backgroundColor: 'white',
+                color: '#495057',
+                fontWeight: '500'
+              }}
+            />
+          </div>
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            fontSize: '0.95rem',
+            color: '#2c3e50',
+            fontWeight: '600'
+          }}>
+            <input
+              type="checkbox"
+              checked={mediaOnly}
+              onChange={(e) => handleMediaOnlyChange(e.target.checked)}
+            />
+            Media only
+          </label>
+          {userFilter && (
             <div style={{
               background: '#eef2ff',
               color: '#3f51b5',
@@ -178,9 +300,81 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
               gap: '0.5rem'
             }}>
               <span>✅</span>
-              Filtering: @{selectedUser}
+              Filtering: @{userFilter}
             </div>
           )}
+          {minReactions > 0 && (
+            <div style={{
+              background: '#fff3cd',
+              color: '#856404',
+              padding: '0.5rem 1rem',
+              borderRadius: '20px',
+              fontSize: '0.875rem',
+              fontWeight: '600'
+            }}>
+              Min reactions: {minReactions}
+            </div>
+          )}
+          {mediaOnly && (
+            <div style={{
+              background: '#e8f5e9',
+              color: '#2e7d32',
+              padding: '0.5rem 1rem',
+              borderRadius: '20px',
+              fontSize: '0.875rem',
+              fontWeight: '600'
+            }}>
+              Media only
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: '1rem',
+        flexWrap: 'wrap',
+        gap: '0.75rem'
+      }}>
+        <div style={{ color: '#666', fontWeight: '500' }}>
+          Showing {list.length} of {totalCount.toLocaleString()} messages
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <button
+            onClick={() => updateSearchParams({ page: Math.max(0, page - 1) })}
+            disabled={page === 0}
+            style={{
+              padding: '0.5rem 0.9rem',
+              borderRadius: '8px',
+              border: '1px solid #e1e8f7',
+              background: page === 0 ? '#f3f4f6' : '#fff',
+              color: '#334155',
+              cursor: page === 0 ? 'not-allowed' : 'pointer',
+              fontWeight: '600'
+            }}
+          >
+            ← Prev
+          </button>
+          <span style={{ fontWeight: '600', color: '#334155' }}>
+            Page {page + 1} / {totalPages}
+          </span>
+          <button
+            onClick={() => updateSearchParams({ page: Math.min(totalPages - 1, page + 1) })}
+            disabled={page >= totalPages - 1}
+            style={{
+              padding: '0.5rem 0.9rem',
+              borderRadius: '8px',
+              border: '1px solid #e1e8f7',
+              background: page >= totalPages - 1 ? '#f3f4f6' : '#fff',
+              color: '#334155',
+              cursor: page >= totalPages - 1 ? 'not-allowed' : 'pointer',
+              fontWeight: '600'
+            }}
+          >
+            Next →
+          </button>
         </div>
       </div>
 
@@ -188,7 +382,7 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
         display: 'grid',
         gap: '1rem'
       }}>
-        {filteredMessages.map((message, index) => (
+        {list.map((message, index) => (
           <div
             key={`${message.channel_id}-${message.message_id}`}
             style={{
@@ -335,7 +529,8 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
                     border: '1px solid #eee',
                     padding: '0.5rem'
                   }}>
-                    <img
+                    <LazyMedia
+                      as="img"
                       src={message.image_url}
                       alt="Message attachment"
                       style={{
@@ -345,7 +540,6 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
                         borderRadius: '8px',
                         display: 'block'
                       }}
-                      loading="lazy"
                     />
                   </div>
                 )}
@@ -359,9 +553,10 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
                     padding: '0.75rem'
                   }}>
                     {message.attachment_mime?.startsWith('video/') ? (
-                      <video
-                        controls
+                      <LazyMedia
+                        as="video"
                         src={message.attachment_url}
+                        mime={message.attachment_mime}
                         style={{
                           width: '100%',
                           maxHeight: '360px',
@@ -370,9 +565,10 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
                         }}
                       />
                     ) : message.attachment_mime?.startsWith('audio/') ? (
-                      <audio
-                        controls
+                      <LazyMedia
+                        as="audio"
                         src={message.attachment_url}
+                        mime={message.attachment_mime}
                         style={{ width: '100%' }}
                       />
                     ) : (

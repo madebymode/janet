@@ -455,6 +455,13 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
 	year := 0
 	if yearStr := r.URL.Query().Get("year"); yearStr != "" {
 		if parsed, err := strconv.Atoi(yearStr); err == nil {
@@ -462,11 +469,37 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// Fetch more messages than requested since we'll filter out ones without text/permalink
-	// This helps ensure we return the full requested limit of enriched messages
-	fetchLimit := limit * 5
+	filterUser := r.URL.Query().Get("user")
+	minReactions := 0
+	if mr := r.URL.Query().Get("min_reactions"); mr != "" {
+		if parsed, err := strconv.Atoi(mr); err == nil {
+			minReactions = parsed
+		}
+	}
+	mediaOnly := r.URL.Query().Get("has_media") == "1"
+	includeMeta := r.URL.Query().Get("include_meta") == "1"
 
-	messages, err := h.db.GetPopularMessages(fetchLimit, year)
+	// Fetch more messages than requested since we apply filters and backfill state
+	// Use a higher cap to make totals more accurate for pagination.
+	fetchLimit := (offset + limit) * 10
+	minFetch := 500
+	if filterUser != "" {
+		minFetch = 2000
+	}
+	if fetchLimit < minFetch {
+		fetchLimit = minFetch
+	}
+	if fetchLimit > 5000 {
+		fetchLimit = 5000
+	}
+
+	var messages []*database.PopularMessage
+	var err error
+	if filterUser != "" {
+		messages, err = h.db.GetPopularMessagesByUser(fetchLimit, year, filterUser)
+	} else {
+		messages, err = h.db.GetPopularMessages(fetchLimit, year)
+	}
 	if err != nil {
 		h.logger.Err(err).Error("failed to get popular messages")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -474,7 +507,6 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 	}
 
 	// For each message, get the Slack permalink and message text
-	response := make([]map[string]interface{}, 0, len(messages))
 	type popularEntry struct {
 		data          map[string]interface{}
 		reactionCount int
@@ -601,6 +633,23 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 		if cachedCount, ok := msgData["reaction_count"].(int); ok {
 			reactionCount = cachedCount
 		}
+		if filterUser != "" {
+			author, _ := msgData["author_name"].(string)
+			if author != filterUser {
+				continue
+			}
+		}
+		if minReactions > 0 && reactionCount < minReactions {
+			continue
+		}
+		if mediaOnly {
+			_, hasImage := msgData["image_url"]
+			_, hasAttachment := msgData["attachment_url"]
+			if !hasImage && !hasAttachment {
+				continue
+			}
+		}
+
 		entries = append(entries, popularEntry{
 			data:          msgData,
 			reactionCount: reactionCount,
@@ -614,16 +663,34 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 		}
 		return entries[i].reactionCount > entries[j].reactionCount
 	})
-	for _, entry := range entries {
+	total := len(entries)
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	sliced := entries[start:end]
+
+	response := make([]map[string]interface{}, 0, len(sliced))
+	for _, entry := range sliced {
 		response = append(response, entry.data)
-		if len(response) >= limit {
-			break
-		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-	logEvent := h.logger.KV("returned", len(response)).KV("requested", limit).KV("skipped_missing", skippedMissing).KV("skipped_replies", skippedReplies).KV("skipped_ignored", skippedIgnored).KV("skipped_test_channels", skippedTestChannels).KV("backfill_enqueued", enqueuedBackfill)
+	if includeMeta {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"items":  response,
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+		})
+	} else {
+		json.NewEncoder(w).Encode(response)
+	}
+	logEvent := h.logger.KV("returned", len(response)).KV("requested", limit).KV("total", total).KV("offset", offset).KV("skipped_missing", skippedMissing).KV("skipped_replies", skippedReplies).KV("skipped_ignored", skippedIgnored).KV("skipped_test_channels", skippedTestChannels).KV("backfill_enqueued", enqueuedBackfill)
 	if failures := h.popPopularBackfillFailures(); failures != nil {
 		logEvent = logEvent.KV("backfill_failures", failures)
 	}

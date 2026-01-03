@@ -400,7 +400,7 @@ func (b *Bot) handleBangBangPoints(ev *slack.ReactionAddedEvent) {
 		}
 
 		// Get updated user points for response
-		user, err := b.Config.DB.GetUser(toUser)
+		user, err := b.Config.DB.GetUserByCurrentYear(toUser)
 		if err != nil {
 			b.Config.Log.Err(err).Error("failed to get user points for bangbang response")
 			continue
@@ -890,7 +890,7 @@ func (b *Bot) applyPoints(ev *slack.MessageEvent, isGoodPersonality bool, splitT
 		return ""
 	}
 
-	user, err := b.Config.DB.GetUser(to)
+	user, err := b.Config.DB.GetUserByCurrentYear(to)
 	if b.handleError(err, ev) {
 		return ""
 	}
@@ -1074,7 +1074,7 @@ func (b *Bot) queryPoints(ev *slack.MessageEvent) {
 	}
 	name = strings.ToLower(name)
 
-	user, err := b.Config.DB.GetUser(name)
+	user, err := b.Config.DB.GetUserByCurrentYear(name)
 	switch {
 	case err == database.ErrNoSuchUser:
 		// override debug mode

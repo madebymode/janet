@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/troyxmccall/janet/database"
 )
 
 // HandleAPILeaderboard handles requests for the general leaderboard
@@ -18,11 +19,32 @@ func (h *Handler) HandleAPILeaderboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	leaderboard, err := h.db.GetCurrentLeaderboard(limit)
-	if err != nil {
-		h.logger.Err(err).Error("failed to get leaderboard")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
+	var leaderboard []*database.UserSummary
+	var err error
+
+	// Check for year query parameter
+	yearParam := r.URL.Query().Get("year")
+	if yearParam != "" {
+		// Year specified, get year-specific leaderboard
+		yearInt, parseErr := strconv.Atoi(yearParam)
+		if parseErr != nil || yearInt < 2020 || yearInt > 2030 {
+			http.Error(w, "Invalid year", http.StatusBadRequest)
+			return
+		}
+		leaderboard, err = h.db.GetYearlyLeaderboard(yearInt, limit)
+		if err != nil {
+			h.logger.Err(err).Error("failed to get yearly leaderboard")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// No year specified, get all-time leaderboard
+		leaderboard, err = h.db.GetCurrentLeaderboard(limit)
+		if err != nil {
+			h.logger.Err(err).Error("failed to get leaderboard")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Enrich user data with Slack information

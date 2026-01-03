@@ -30,7 +30,7 @@ func (ss *StatsService) GetTotalPoints(year int) (int, error) {
 	return totalPoints, err
 }
 
-// GetAvailableYears returns all years with data
+// GetAvailableYears returns all years with data, always including the current year
 func (ss *StatsService) GetAvailableYears() ([]int, error) {
 	query := `
 		SELECT DISTINCT year
@@ -45,12 +45,24 @@ func (ss *StatsService) GetAvailableYears() ([]int, error) {
 	defer rows.Close()
 
 	var years []int
+	currentYear := time.Now().Year()
+	hasCurrentYear := false
+
 	for rows.Next() {
 		var year int
 		if err := rows.Scan(&year); err != nil {
 			return nil, err
 		}
+		if year == currentYear {
+			hasCurrentYear = true
+		}
 		years = append(years, year)
+	}
+
+	// Always include current year even if no data exists yet
+	if !hasCurrentYear {
+		// Insert at the beginning since years are sorted DESC
+		years = append([]int{currentYear}, years...)
 	}
 
 	return years, nil

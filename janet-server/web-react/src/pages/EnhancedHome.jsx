@@ -1005,7 +1005,9 @@ function EnhancedHome() {
                   {(() => {
                     const currentYear = new Date().getFullYear();
                     const years = [];
-                    for (let year = currentYear; year >= 2023; year--) {
+                    // Always include at least through 2026 to ensure current year is shown
+                    const maxYear = Math.max(currentYear, 2026);
+                    for (let year = maxYear; year >= 2023; year--) {
                       years.push(<option key={year} value={year}>{year}</option>);
                     }
                     return years;

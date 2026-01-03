@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -476,6 +477,7 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 	skippedMissing := 0
 	enqueuedBackfill := 0
 	skippedReplies := 0
+	skippedTestChannels := 0
 	for _, msg := range messages {
 		msgData := map[string]interface{}{
 			"channel_id":     msg.ChannelID,
@@ -539,6 +541,11 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 			}
 		}
 
+		if strings.HasPrefix(channelID, "TEST") {
+			skippedTestChannels++
+			continue
+		}
+
 		if !hasAuthor {
 			if derivedAuthor, err := h.db.GetMessageAuthorByMessageID(msg.MessageID); err == nil && derivedAuthor != nil {
 				msgData["author_name"] = *derivedAuthor
@@ -572,5 +579,5 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
-	h.logger.KV("returned", len(response)).KV("requested", limit).KV("skipped_missing", skippedMissing).KV("skipped_replies", skippedReplies).KV("backfill_enqueued", enqueuedBackfill).Info("popular messages response")
+	h.logger.KV("returned", len(response)).KV("requested", limit).KV("skipped_missing", skippedMissing).KV("skipped_replies", skippedReplies).KV("skipped_test_channels", skippedTestChannels).KV("backfill_enqueued", enqueuedBackfill).Info("popular messages response")
 }

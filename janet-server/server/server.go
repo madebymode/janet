@@ -35,6 +35,7 @@ type HandlerService interface {
 	HandleAPIKarmaDistribution(w http.ResponseWriter, r *http.Request)
 	HandleAPIActivityTimeline(w http.ResponseWriter, r *http.Request)
 	HandleAPIPointsOverTime(w http.ResponseWriter, r *http.Request)
+	HandleAPIPopularMessages(w http.ResponseWriter, r *http.Request)
 	HandleAPIStatus(w http.ResponseWriter, r *http.Request)
 	HandleAPIUser(w http.ResponseWriter, r *http.Request)
 	HandleAPIUserAllTimePointsOverTime(w http.ResponseWriter, r *http.Request)

@@ -6,6 +6,7 @@ import LeaderboardPage from './LeaderboardPage'
 import AnalyticsPage from './AnalyticsPage'
 import ActivityPage from './ActivityPage'
 import UsersPage from './UsersPage'
+import PopularMessagesPage from './PopularMessagesPage'
 
 function Dashboard() {
   const navigate = useNavigate()
@@ -19,6 +20,7 @@ function Dashboard() {
     if (path.includes('/analytics')) return 'analytics'
     if (path.includes('/activity')) return 'activity'
     if (path.includes('/users')) return 'users'
+    if (path.includes('/popular')) return 'popular'
     return 'overview'
   }
 
@@ -115,6 +117,8 @@ useEffect(() => {
         return <ActivityPage {...commonProps} />
       case 'users':
         return <UsersPage {...commonProps} />
+      case 'popular':
+        return <PopularMessagesPage {...commonProps} />
       default:
         return <OverviewPage {...commonProps} />
     }
@@ -214,6 +218,7 @@ useEffect(() => {
               {[
                 { id: 'overview', label: 'Overview', icon: '📊' },
                 { id: 'leaderboard', label: 'Leaderboard', icon: '🏆' },
+                { id: 'popular', label: 'Popular', icon: '🔥' },
                 { id: 'analytics', label: 'Analytics', icon: '📈' },
                 { id: 'activity', label: 'Activity', icon: '🔄' },
                 { id: 'users', label: 'Users', icon: '👥' }

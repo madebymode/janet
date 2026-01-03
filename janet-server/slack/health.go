@@ -5,9 +5,19 @@ import (
 	"time"
 )
 
-// CheckBotHealth checks if the janet-bot container is healthy
+// CheckBotHealth checks if Slack functionality is available
 func (s *Service) CheckBotHealth() bool {
-	// Try to resolve the janet-bot hostname
+	// If we have a standalone client, we're healthy
+	if s.slackClient != nil {
+		return true
+	}
+
+	// Otherwise check if the janet-bot container is healthy
+	if s.bot != nil {
+		return true
+	}
+
+	// Try to resolve the janet-bot hostname as fallback
 	// If the container is running and in the same network, this will succeed
 	_, err := net.LookupHost("janet-bot")
 

@@ -106,6 +106,14 @@ type BackfillStats struct {
 	DurationMs        int `json:"duration_ms"`
 }
 
+// PopularMessage represents a message with reaction counts
+type PopularMessage struct {
+	ChannelID     *string `json:"channel_id,omitempty"`
+	MessageID     string  `json:"message_id"`
+	ReactionCount int     `json:"reaction_count"`
+	TotalPoints   int     `json:"total_points"`
+}
+
 // Legacy types for backward compatibility
 type Points struct {
 	From, To, Reason string

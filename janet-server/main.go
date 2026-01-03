@@ -5,6 +5,7 @@ import (
 	stdlog "log"
 	"os"
 
+	slackgo "github.com/slack-go/slack"
 	"github.com/troyxmccall/janet/janet-server/handlers"
 	"github.com/troyxmccall/janet/janet-server/server"
 	"github.com/troyxmccall/janet/janet-server/slack"
@@ -26,7 +27,29 @@ func main() {
 	}
 
 	// Initialize Slack service
-	slackService := slack.NewService(srv.GetBot())
+	var slackService handlers.SlackService
+	if srv.GetBot() != nil {
+		// Bot is enabled, use bot's Slack client
+		slackService = slack.NewService(srv.GetBot())
+		srv.GetLogger().Info("using bot's Slack client")
+	} else {
+		// Bot is disabled, create standalone Slack client for API calls
+		// Use JANET_WEB_TOKEN if available, otherwise fall back to JANET_SLACK_TOKEN
+		webToken := os.Getenv("JANET_WEB_TOKEN")
+		if webToken == "" {
+			webToken = os.Getenv("JANET_SLACK_TOKEN")
+		}
+
+		if webToken != "" {
+			slackClient := slackgo.New(webToken)
+			slackService = slack.NewWebService(slackClient)
+			srv.GetLogger().Info("using standalone Slack client for web mode")
+		} else {
+			// No Slack client available
+			slackService = slack.NewWebService(nil)
+			srv.GetLogger().Error("no Slack token available, Slack features disabled")
+		}
+	}
 
 	// Initialize handlers
 	handlerService := handlers.NewHandler(srv.GetDB(), srv.GetBot(), srv.GetLogger(), slackService)

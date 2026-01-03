@@ -10,6 +10,9 @@ import (
 type SlackService interface {
 	EnrichUsersWithSlackInfo(users []*database.UserSummary) []*database.UserSummary
 	CheckBotHealth() bool
+	GetMessageText(channelID, messageID string) (string, error)
+	GetMessagePermalink(channelID, messageID string) (string, error)
+	FindChannelByMessageID(messageID string) (string, error)
 }
 
 // Handler contains dependencies for API handlers

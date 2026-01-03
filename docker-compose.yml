@@ -112,10 +112,11 @@ services:
       
       # Disable bot functionality in web service
       JANET_BOT_ENABLED: "false"
-      
+
       # Slack API access needed for backfill operations and admin features
       JANET_SLACK_TOKEN: ${JANET_SLACK_TOKEN}
       JANET_SLACK_SOCKET_TOKEN: ${JANET_SLACK_SOCKET_TOKEN}
+      JANET_WEB_TOKEN: ${JANET_WEB_TOKEN}
       JANET_GOOD_PLACE_JUDGE_BOT_ID: ${JANET_GOOD_PLACE_JUDGE_BOT_ID}
     ports:
       - "8080:8080"

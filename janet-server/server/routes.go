@@ -35,6 +35,7 @@ func (s *Server) setupRoutes() {
 	api.HandleFunc("/stats/karma-distribution", s.handlers.HandleAPIKarmaDistribution).Methods("GET")
 	api.HandleFunc("/stats/activity-timeline", s.handlers.HandleAPIActivityTimeline).Methods("GET")
 	api.HandleFunc("/stats/points-over-time", s.handlers.HandleAPIPointsOverTime).Methods("GET")
+	api.HandleFunc("/stats/popular-messages", s.handlers.HandleAPIPopularMessages).Methods("GET")
 	api.HandleFunc("/status", s.handlers.HandleAPIStatus).Methods("GET")
 	api.HandleFunc("/user/{username}", s.handlers.HandleAPIUser).Methods("GET")
 	api.HandleFunc("/user/{username}/points-over-time/all", s.handlers.HandleAPIUserAllTimePointsOverTime).Methods("GET")

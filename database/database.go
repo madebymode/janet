@@ -124,6 +124,15 @@ func (db *V2DB) GetNegativeTransactionsCumulative() (int, error) {
 	return db.transactionService().GetNegativeTransactionsCumulative()
 }
 
+// Popular messages methods
+func (db *V2DB) GetPopularMessages(limit int, year int) ([]*PopularMessage, error) {
+	return db.transactionService().GetPopularMessages(limit, year)
+}
+
+func (db *V2DB) UpdateChannelIDForMessage(messageID, channelID string) error {
+	return db.transactionService().UpdateChannelIDForMessage(messageID, channelID)
+}
+
 // UserRepository implementation
 
 // User data methods

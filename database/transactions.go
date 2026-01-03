@@ -3,6 +3,7 @@ package database
 import (
 	"errors"
 	"regexp"
+	"strconv"
 	"time"
 )
 
@@ -370,4 +371,92 @@ func (ts *TransactionService) GetNegativeTransactionsByYear(year int) (int, erro
 
 func (ts *TransactionService) GetNegativeTransactionsCumulative() (int, error) {
 	return ts.GetNegativeTransactionsByYear(0) // 0 means all-time/cumulative
+}
+
+// GetPopularMessages returns messages with the most reactions
+// Filters out messages where >50% of reactions are 'bangbang' (these are typically important announcements, not funny posts)
+// Prioritizes messages with 'joy' emoji reactions (funny posts)
+func (ts *TransactionService) GetPopularMessages(limit int, year int) ([]*PopularMessage, error) {
+	query := `
+		WITH message_reactions AS (
+			SELECT
+				message_id,
+				-- Get any non-null channel_id for this message (all reactions to same message should have same channel)
+				MAX(channel_id) FILTER (WHERE channel_id IS NOT NULL AND channel_id != '') as channel_id,
+				COUNT(*) as total_reactions,
+				SUM(CASE WHEN emoji_name = 'bangbang' THEN 1 ELSE 0 END) as bangbang_count,
+				SUM(CASE WHEN emoji_name = 'joy' THEN 1 ELSE 0 END) as joy_count,
+				SUM(points) as total_points
+			FROM karma_transactions
+			WHERE transaction_type = 'reactji'
+				AND message_id IS NOT NULL
+	`
+
+	args := []interface{}{}
+	if year > 0 {
+		query += " AND year = $1"
+		args = append(args, year)
+	}
+
+	query += `
+			GROUP BY message_id
+		)
+		SELECT
+			channel_id,
+			message_id,
+			total_reactions as reaction_count,
+			total_points
+		FROM message_reactions
+		WHERE
+			-- Filter out messages where >50% are bangbang reactions
+			(bangbang_count::float / NULLIF(total_reactions, 0)) <= 0.5
+		ORDER BY
+			-- Prioritize messages with joy emoji
+			joy_count DESC,
+			total_reactions DESC
+		LIMIT $` + strconv.Itoa(len(args)+1)
+
+	args = append(args, limit)
+
+	rows, err := ts.db.SQL.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []*PopularMessage
+	for rows.Next() {
+		msg := &PopularMessage{}
+		err := rows.Scan(&msg.ChannelID, &msg.MessageID, &msg.ReactionCount, &msg.TotalPoints)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, msg)
+	}
+
+	return messages, nil
+}
+
+// UpdateChannelIDForMessage updates the channel_id for all transactions with a given message_id
+// This is useful for caching channel lookups from the Slack API
+func (ts *TransactionService) UpdateChannelIDForMessage(messageID, channelID string) error {
+	query := `
+		UPDATE karma_transactions
+		SET channel_id = $1
+		WHERE message_id = $2
+			AND (channel_id IS NULL OR channel_id = '')
+	`
+
+	result, err := ts.db.SQL.Exec(query, channelID, messageID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected > 0 {
+		// Log that we updated some rows (for debugging)
+		_ = rowsAffected
+	}
+
+	return nil
 }

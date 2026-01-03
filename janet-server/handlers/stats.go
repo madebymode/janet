@@ -443,3 +443,110 @@ func (h *Handler) HandleAPIPointsOverTime(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
+
+// HandleAPIPopularMessages handles requests for popular messages with reactions
+func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Request) {
+	limit := 100
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil {
+			limit = parsed
+		}
+	}
+
+	year := 0
+	if yearStr := r.URL.Query().Get("year"); yearStr != "" {
+		if parsed, err := strconv.Atoi(yearStr); err == nil {
+			year = parsed
+		}
+	}
+
+	// Fetch more messages than requested since we'll filter out ones without text/permalink
+	// This helps ensure we return the full requested limit of enriched messages
+	fetchLimit := limit * 5
+
+	messages, err := h.db.GetPopularMessages(fetchLimit, year)
+	if err != nil {
+		h.logger.Err(err).Error("failed to get popular messages")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// For each message, get the Slack permalink and message text
+	response := make([]map[string]interface{}, 0, len(messages))
+	for _, msg := range messages {
+		msgData := map[string]interface{}{
+			"channel_id":     msg.ChannelID,
+			"message_id":     msg.MessageID,
+			"reaction_count": msg.ReactionCount,
+			"total_points":   msg.TotalPoints,
+		}
+
+		// Get channel_id if missing (fallback to search)
+		channelID := ""
+		if msg.ChannelID != nil && *msg.ChannelID != "" {
+			channelID = *msg.ChannelID
+		} else if h.slack != nil {
+			// Try to find channel_id using search API (requires user token with search:read scope)
+			h.logger.KV("message_id", msg.MessageID).Info("channel_id missing, attempting to find via search")
+			foundChannelID, err := h.slack.FindChannelByMessageID(msg.MessageID)
+			if err == nil {
+				channelID = foundChannelID
+				h.logger.KV("message_id", msg.MessageID).KV("found_channel_id", foundChannelID).Info("successfully found channel_id via search")
+				// Update the msgData with the found channel_id
+				msgData["channel_id"] = foundChannelID
+
+				// Cache the channel_id to database for future requests
+				if err := h.db.UpdateChannelIDForMessage(msg.MessageID, foundChannelID); err != nil {
+					h.logger.Err(err).KV("message_id", msg.MessageID).KV("channel_id", foundChannelID).Error("failed to cache channel_id to database")
+				} else {
+					h.logger.KV("message_id", msg.MessageID).KV("channel_id", foundChannelID).Info("cached channel_id to database")
+				}
+			} else {
+				// Search failed - this is expected with bot tokens (need user token for search API)
+				h.logger.KV("message_id", msg.MessageID).KV("error", err.Error()).Info("could not find channel_id via search (requires user token with search:read scope)")
+			}
+		}
+
+		// Get permalink and message text if we have channel and message ID
+		hasText := false
+		hasPermalink := false
+
+		if channelID != "" && h.slack != nil {
+			h.logger.KV("channel_id", channelID).KV("message_id", msg.MessageID).Info("attempting to fetch message text and permalink")
+
+			// Get permalink
+			permalink, err := h.slack.GetMessagePermalink(channelID, msg.MessageID)
+			if err == nil {
+				msgData["permalink"] = permalink
+				hasPermalink = true
+			} else {
+				h.logger.Err(err).KV("channel_id", channelID).KV("message_id", msg.MessageID).Error("failed to get permalink")
+			}
+
+			// Get message text
+			messageText, err := h.slack.GetMessageText(channelID, msg.MessageID)
+			if err == nil {
+				msgData["text"] = messageText
+				hasText = true
+				h.logger.KV("channel_id", channelID).KV("message_id", msg.MessageID).KV("text_length", len(messageText)).Info("successfully fetched message text")
+			} else {
+				h.logger.Err(err).KV("channel_id", channelID).KV("message_id", msg.MessageID).Error("failed to get message text")
+			}
+		}
+
+		// Only include messages that have both text and permalink
+		if hasText && hasPermalink {
+			response = append(response, msgData)
+
+			// Stop once we have enough messages (the requested limit)
+			if len(response) >= limit {
+				break
+			}
+		} else {
+			h.logger.KV("channel_id", channelID).KV("message_id", msg.MessageID).KV("has_text", hasText).KV("has_permalink", hasPermalink).Info("skipping message - missing text or permalink")
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}

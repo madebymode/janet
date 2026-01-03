@@ -13,6 +13,8 @@ function App() {
         <Route path="/overview/:year" element={<Dashboard />} />
         <Route path="/leaderboard" element={<Dashboard />} />
         <Route path="/leaderboard/:year" element={<Dashboard />} />
+        <Route path="/popular" element={<Dashboard />} />
+        <Route path="/popular/:year" element={<Dashboard />} />
         <Route path="/analytics" element={<Dashboard />} />
         <Route path="/analytics/:year" element={<Dashboard />} />
         <Route path="/activity" element={<Dashboard />} />

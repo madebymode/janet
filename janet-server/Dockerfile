@@ -1,5 +1,5 @@
 # Build stage for React app
-FROM node:20-alpine AS react_builder
+FROM node:18-alpine AS react_builder
 
 WORKDIR /app/janet-server/web-react
 

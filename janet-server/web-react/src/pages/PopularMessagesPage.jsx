@@ -42,7 +42,7 @@ function LazyMedia({ as, src, mime, alt, className, style }) {
       <video
         ref={ref}
         controls
-        preload="none"
+        preload={isVisible ? 'metadata' : 'none'}
         src={isVisible ? src : undefined}
         className={className}
         style={style}
@@ -55,7 +55,7 @@ function LazyMedia({ as, src, mime, alt, className, style }) {
       <audio
         ref={ref}
         controls
-        preload="none"
+        preload={isVisible ? 'metadata' : 'none'}
         src={isVisible ? src : undefined}
         className={className}
         style={style}
@@ -72,7 +72,7 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
   const minReactions = Math.max(0, parseInt(searchParams.get('min_reactions') || '0', 10) || 0)
   const mediaOnly = searchParams.get('media') === '1'
   const userFilter = searchParams.get('user') || ''
-  const pageSize = 50
+  const pageSize = 15
 
   React.useEffect(() => {
     if (userFilter !== selectedUser) {
@@ -120,6 +120,9 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
 
   const list = messages?.items || messages
   const totalCount = messages?.total || (list ? list.length : 0)
+  const pendingCount = messages?.pending || 0
+  const queueSize = messages?.queue_size || 0
+  const queuePosition = messages?.queue_position || 0
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
 
   if (loading) {
@@ -180,6 +183,56 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
     )
   }
 
+  const paginationControls = (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: '1rem',
+      flexWrap: 'wrap',
+      gap: '0.75rem'
+    }}>
+      <div style={{ color: '#666', fontWeight: '500' }}>
+        Showing {list.length} of {totalCount.toLocaleString()} messages
+      </div>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <button
+          onClick={() => updateSearchParams({ page: Math.max(0, page - 1) })}
+          disabled={page === 0}
+          style={{
+            padding: '0.5rem 0.9rem',
+            borderRadius: '8px',
+            border: '1px solid #e1e8f7',
+            background: page === 0 ? '#f3f4f6' : '#fff',
+            color: '#334155',
+            cursor: page === 0 ? 'not-allowed' : 'pointer',
+            fontWeight: '600'
+          }}
+        >
+          ← Prev
+        </button>
+        <span style={{ fontWeight: '600', color: '#334155' }}>
+          Page {page + 1} / {totalPages}
+        </span>
+        <button
+          onClick={() => updateSearchParams({ page: Math.min(totalPages - 1, page + 1) })}
+          disabled={page >= totalPages - 1}
+          style={{
+            padding: '0.5rem 0.9rem',
+            borderRadius: '8px',
+            border: '1px solid #e1e8f7',
+            background: page >= totalPages - 1 ? '#f3f4f6' : '#fff',
+            color: '#334155',
+            cursor: page >= totalPages - 1 ? 'not-allowed' : 'pointer',
+            fontWeight: '600'
+          }}
+        >
+          Next →
+        </button>
+      </div>
+    </div>
+  )
+
   return (
     <div className="popular-messages-page">
       <div style={{
@@ -203,6 +256,33 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
           Messages with the most reactions and karma points
         </p>
       </div>
+
+      {(pendingCount > 0 || queueSize > 0) && (
+        <div style={{
+          marginBottom: '1rem',
+          padding: '0.9rem 1.2rem',
+          background: '#fff8e1',
+          borderRadius: '10px',
+          border: '1px solid #ffe082',
+          color: '#8a6d3b',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.6rem',
+          fontWeight: '600'
+        }}>
+          <span>⏳</span>
+          {pendingCount > 0 && (
+            <span>{pendingCount} messages are still fetching details.</span>
+          )}
+          {queueSize > 0 && (
+            <span>Queue size: {queueSize}.</span>
+          )}
+          {queuePosition > 0 && (
+            <span>Approx position: {queuePosition}.</span>
+          )}
+          <span>Refresh in a minute for richer results.</span>
+        </div>
+      )}
 
       <div className="card" style={{
         background: 'white',
@@ -330,53 +410,7 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
         </div>
       </div>
 
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: '1rem',
-        flexWrap: 'wrap',
-        gap: '0.75rem'
-      }}>
-        <div style={{ color: '#666', fontWeight: '500' }}>
-          Showing {list.length} of {totalCount.toLocaleString()} messages
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <button
-            onClick={() => updateSearchParams({ page: Math.max(0, page - 1) })}
-            disabled={page === 0}
-            style={{
-              padding: '0.5rem 0.9rem',
-              borderRadius: '8px',
-              border: '1px solid #e1e8f7',
-              background: page === 0 ? '#f3f4f6' : '#fff',
-              color: '#334155',
-              cursor: page === 0 ? 'not-allowed' : 'pointer',
-              fontWeight: '600'
-            }}
-          >
-            ← Prev
-          </button>
-          <span style={{ fontWeight: '600', color: '#334155' }}>
-            Page {page + 1} / {totalPages}
-          </span>
-          <button
-            onClick={() => updateSearchParams({ page: Math.min(totalPages - 1, page + 1) })}
-            disabled={page >= totalPages - 1}
-            style={{
-              padding: '0.5rem 0.9rem',
-              borderRadius: '8px',
-              border: '1px solid #e1e8f7',
-              background: page >= totalPages - 1 ? '#f3f4f6' : '#fff',
-              color: '#334155',
-              cursor: page >= totalPages - 1 ? 'not-allowed' : 'pointer',
-              fontWeight: '600'
-            }}
-          >
-            Next →
-          </button>
-        </div>
-      </div>
+      {paginationControls}
 
       <div style={{
         display: 'grid',
@@ -601,6 +635,10 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
             </div>
           </div>
         ))}
+      </div>
+
+      <div style={{ marginTop: '1.5rem' }}>
+        {paginationControls}
       </div>
     </div>
   )

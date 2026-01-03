@@ -67,3 +67,10 @@ func (h *Handler) popPopularBackfillFailures() map[string]int {
 	h.popularFailLastLog = time.Now()
 	return counts
 }
+
+func (h *Handler) popularBackfillQueueSize() int {
+	if h.popularBackfillQueue == nil {
+		return 0
+	}
+	return len(h.popularBackfillQueue)
+}

@@ -624,11 +624,13 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 			}
 		}
 
-		if !hasText || !hasPermalink || !hasAuthor || !imageKnown || !attachmentKnown || !reactionKnown {
+		missingDetails := !hasText || !hasPermalink || !hasAuthor || !imageKnown || !attachmentKnown || !reactionKnown
+		if missingDetails {
 			h.enqueuePopularMessageBackfill(msg.MessageID, channelID)
 			enqueuedBackfill++
 			skippedMissing++
 		}
+		msgData["pending_details"] = missingDetails
 		reactionCount := msg.ReactionCount
 		if cachedCount, ok := msgData["reaction_count"].(int); ok {
 			reactionCount = cachedCount
@@ -682,10 +684,13 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	if includeMeta {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"items":  response,
-			"total":  total,
-			"limit":  limit,
-			"offset": offset,
+			"items":   response,
+			"total":   total,
+			"limit":   limit,
+			"offset":  offset,
+			"pending": skippedMissing,
+			"queue_size": h.popularBackfillQueueSize(),
+			"queue_position": h.popularBackfillQueueSize(),
 		})
 	} else {
 		json.NewEncoder(w).Encode(response)

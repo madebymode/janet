@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 const apiCache = new Map()
 
 // localStorage cache helpers with expiry
-const CACHE_EXPIRY_MS = 5 * 60 * 1000 // 5 minutes
+const CACHE_EXPIRY_MS = 1 * 60 * 1000 // 1 minute
 
 function getCachedData(key) {
   try {

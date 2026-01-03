@@ -31,14 +31,8 @@ func (h *Handler) HandleAPIUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := map[string]interface{}{
-		"name":   summary.Username,
-		"points": summary.TotalPoints,
-		"rank":   summary.Rank,
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(summary)
 }
 
 // HandleAPIUserByYear handles requests for user information for a specific year

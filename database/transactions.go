@@ -1,8 +1,15 @@
 package database
 
 import (
+	"errors"
 	"regexp"
 	"time"
+)
+
+var (
+	// ErrInvalidUsername is returned when a username contains invalid characters
+	ErrInvalidUsername = errors.New("username contains invalid characters")
+	validUsernameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 )
 
 // TransactionService handles transaction-related database operations
@@ -15,8 +22,23 @@ func NewTransactionService(db *V2DB) *TransactionService {
 	return &TransactionService{db: db}
 }
 
+// isValidUsername validates that a username only contains allowed characters
+// Returns true if username is valid (alphanumeric, dots, underscores, hyphens only)
+// Rejects Slack special syntax like <!subteam^>, <@U...>, :emoji: patterns, etc.
+func isValidUsername(username string) bool {
+	if username == "" || len(username) > 50 {
+		return false
+	}
+	return validUsernameRegex.MatchString(username)
+}
+
 // InsertTransaction inserts a new karma transaction
 func (ts *TransactionService) InsertTransaction(tx *Transaction) error {
+	// Validate usernames to prevent special characters from being stored
+	if !isValidUsername(tx.FromUser) || !isValidUsername(tx.ToUser) {
+		return ErrInvalidUsername
+	}
+
 	// Extract emoji name from reason if not provided
 	if tx.EmojiName == nil && tx.Reason != "" {
 		emojiRegex := regexp.MustCompile(`added a :([^:]+): emoji`)
@@ -89,6 +111,11 @@ func (ts *TransactionService) InsertTransactionsBulk(transactions []*Transaction
 
 	// Process each transaction
 	for _, tx := range transactions {
+		// Validate usernames to prevent special characters from being stored
+		if !isValidUsername(tx.FromUser) || !isValidUsername(tx.ToUser) {
+			return ErrInvalidUsername
+		}
+
 		// Extract emoji name from reason if not provided
 		if tx.EmojiName == nil && tx.Reason != "" {
 			emojiRegex := regexp.MustCompile(`added a :([^:]+): emoji`)

@@ -149,10 +149,25 @@ CREATE TABLE IF NOT EXISTS user_summary_monthly
 -- Clean up invalid usernames (Slack special syntax like <!subteam^>, <@U...>, :emoji: patterns, etc.)
 -- Only keep usernames with alphanumeric characters, dots, underscores, and hyphens
 DELETE FROM karma_transactions
-WHERE from_user NOT GLOB '[a-zA-Z0-9._-]*'
+WHERE from_user !~ '^[a-zA-Z0-9._-]+$'
    OR from_user = ''
    OR LENGTH(from_user) > 50
-   OR to_user NOT GLOB '[a-zA-Z0-9._-]*'
+   OR to_user !~ '^[a-zA-Z0-9._-]+$'
    OR to_user = ''
    OR LENGTH(to_user) > 50;
+
+DELETE FROM user_summary_current
+WHERE username !~ '^[a-zA-Z0-9._-]+$'
+   OR username = ''
+   OR LENGTH(username) > 50;
+
+DELETE FROM user_summary_yearly
+WHERE username !~ '^[a-zA-Z0-9._-]+$'
+   OR username = ''
+   OR LENGTH(username) > 50;
+
+DELETE FROM user_summary_monthly
+WHERE username !~ '^[a-zA-Z0-9._-]+$'
+   OR username = ''
+   OR LENGTH(username) > 50;
 

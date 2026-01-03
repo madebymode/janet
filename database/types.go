@@ -114,6 +114,20 @@ type PopularMessage struct {
 	TotalPoints   int     `json:"total_points"`
 }
 
+// PopularMessageDetails represents cached Slack metadata for a message
+type PopularMessageDetails struct {
+	MessageID string
+	ChannelID *string
+	Text      *string
+	Permalink *string
+	AuthorID  *string
+	AuthorName *string
+	AuthorAvatar *string
+	ImageURL  *string
+	IsReply   *bool
+	IsIgnored *bool
+}
+
 // Legacy types for backward compatibility
 type Points struct {
 	From, To, Reason string

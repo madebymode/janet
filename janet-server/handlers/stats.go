@@ -473,6 +473,9 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 
 	// For each message, get the Slack permalink and message text
 	response := make([]map[string]interface{}, 0, len(messages))
+	skippedMissing := 0
+	enqueuedBackfill := 0
+	skippedReplies := 0
 	for _, msg := range messages {
 		msgData := map[string]interface{}{
 			"channel_id":     msg.ChannelID,
@@ -485,68 +488,89 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 		channelID := ""
 		if msg.ChannelID != nil && *msg.ChannelID != "" {
 			channelID = *msg.ChannelID
-		} else if h.slack != nil {
-			// Try to find channel_id using search API (requires user token with search:read scope)
-			h.logger.KV("message_id", msg.MessageID).Info("channel_id missing, attempting to find via search")
-			foundChannelID, err := h.slack.FindChannelByMessageID(msg.MessageID)
-			if err == nil {
-				channelID = foundChannelID
-				h.logger.KV("message_id", msg.MessageID).KV("found_channel_id", foundChannelID).Info("successfully found channel_id via search")
-				// Update the msgData with the found channel_id
-				msgData["channel_id"] = foundChannelID
-
-				// Cache the channel_id to database for future requests
-				if err := h.db.UpdateChannelIDForMessage(msg.MessageID, foundChannelID); err != nil {
-					h.logger.Err(err).KV("message_id", msg.MessageID).KV("channel_id", foundChannelID).Error("failed to cache channel_id to database")
-				} else {
-					h.logger.KV("message_id", msg.MessageID).KV("channel_id", foundChannelID).Info("cached channel_id to database")
-				}
-			} else {
-				// Search failed - this is expected with bot tokens (need user token for search API)
-				h.logger.KV("message_id", msg.MessageID).KV("error", err.Error()).Info("could not find channel_id via search (requires user token with search:read scope)")
-			}
 		}
 
-		// Get permalink and message text if we have channel and message ID
+		// Check cached message details first to avoid Slack API calls
 		hasText := false
 		hasPermalink := false
-
-		if channelID != "" && h.slack != nil {
-			h.logger.KV("channel_id", channelID).KV("message_id", msg.MessageID).Info("attempting to fetch message text and permalink")
-
-			// Get permalink
-			permalink, err := h.slack.GetMessagePermalink(channelID, msg.MessageID)
-			if err == nil {
-				msgData["permalink"] = permalink
-				hasPermalink = true
-			} else {
-				h.logger.Err(err).KV("channel_id", channelID).KV("message_id", msg.MessageID).Error("failed to get permalink")
+		hasAuthor := false
+		imageKnown := false
+		if cached, err := h.db.GetPopularMessageDetails(msg.MessageID); err == nil && cached != nil {
+			if cached.ChannelID != nil && channelID == "" {
+				channelID = *cached.ChannelID
+				msgData["channel_id"] = cached.ChannelID
 			}
-
-			// Get message text
-			messageText, err := h.slack.GetMessageText(channelID, msg.MessageID)
-			if err == nil {
-				msgData["text"] = messageText
+			if cached.Text != nil && *cached.Text != "" {
+				msgData["text"] = *cached.Text
 				hasText = true
-				h.logger.KV("channel_id", channelID).KV("message_id", msg.MessageID).KV("text_length", len(messageText)).Info("successfully fetched message text")
-			} else {
-				h.logger.Err(err).KV("channel_id", channelID).KV("message_id", msg.MessageID).Error("failed to get message text")
+			}
+			if cached.Permalink != nil && *cached.Permalink != "" {
+				msgData["permalink"] = *cached.Permalink
+				hasPermalink = true
+			}
+			if cached.AuthorName != nil && *cached.AuthorName != "" {
+				msgData["author_name"] = *cached.AuthorName
+				hasAuthor = true
+			}
+			if cached.AuthorAvatar != nil && *cached.AuthorAvatar != "" {
+				msgData["author_avatar"] = *cached.AuthorAvatar
+				hasAuthor = true
+			}
+			if cached.ImageURL != nil {
+				imageKnown = true
+				if *cached.ImageURL != "" {
+					msgData["image_url"] = *cached.ImageURL
+				}
+			}
+			if cached.IsReply != nil && *cached.IsReply {
+				skippedReplies++
+				continue
+			}
+		} else if err != nil {
+			h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to read popular message cache")
+		}
+
+		if channelID == "" {
+			if storedChannelID, err := h.db.GetChannelIDForMessage(msg.MessageID); err == nil && storedChannelID != nil {
+				channelID = *storedChannelID
+				msgData["channel_id"] = storedChannelID
+			} else if err != nil {
+				h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to resolve channel_id from transactions")
 			}
 		}
 
-		// Only include messages that have both text and permalink
-		if hasText && hasPermalink {
-			response = append(response, msgData)
-
-			// Stop once we have enough messages (the requested limit)
-			if len(response) >= limit {
-				break
+		if !hasAuthor {
+			if derivedAuthor, err := h.db.GetMessageAuthorByMessageID(msg.MessageID); err == nil && derivedAuthor != nil {
+				msgData["author_name"] = *derivedAuthor
+				hasAuthor = true
+				if err := h.db.UpsertPopularMessageDetails(msg.MessageID, nil, nil, nil, nil, derivedAuthor, nil, nil, nil, nil); err != nil {
+					h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to cache derived author")
+				}
+			} else if err != nil {
+				h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to derive author from transactions")
 			}
-		} else {
-			h.logger.KV("channel_id", channelID).KV("message_id", msg.MessageID).KV("has_text", hasText).KV("has_permalink", hasPermalink).Info("skipping message - missing text or permalink")
+		}
+
+		if channelID != "" {
+			cachedChannelID := channelID
+			if err := h.db.UpsertPopularMessageDetails(msg.MessageID, &cachedChannelID, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
+				h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to update popular message cache")
+			}
+		}
+
+		if !hasText || !hasPermalink || !hasAuthor || !imageKnown {
+			h.enqueuePopularMessageBackfill(msg.MessageID, channelID)
+			enqueuedBackfill++
+			skippedMissing++
+		}
+
+		response = append(response, msgData)
+		if len(response) >= limit {
+			break
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+	h.logger.KV("returned", len(response)).KV("requested", limit).KV("skipped_missing", skippedMissing).KV("skipped_replies", skippedReplies).KV("backfill_enqueued", enqueuedBackfill).Info("popular messages response")
 }

@@ -133,6 +133,26 @@ func (db *V2DB) UpdateChannelIDForMessage(messageID, channelID string) error {
 	return db.transactionService().UpdateChannelIDForMessage(messageID, channelID)
 }
 
+func (db *V2DB) BackfillChannelIDsFromTransactions() (int64, error) {
+	return db.transactionService().BackfillChannelIDsFromTransactions()
+}
+
+func (db *V2DB) GetMessageAuthorByMessageID(messageID string) (*string, error) {
+	return db.transactionService().GetMessageAuthorByMessageID(messageID)
+}
+
+func (db *V2DB) GetChannelIDForMessage(messageID string) (*string, error) {
+	return db.transactionService().GetChannelIDForMessage(messageID)
+}
+
+func (db *V2DB) GetPopularMessageDetails(messageID string) (*PopularMessageDetails, error) {
+	return db.transactionService().GetPopularMessageDetails(messageID)
+}
+
+func (db *V2DB) UpsertPopularMessageDetails(messageID string, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL *string, isReply, isIgnored *bool) error {
+	return db.transactionService().UpsertPopularMessageDetails(messageID, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, isReply, isIgnored)
+}
+
 // UserRepository implementation
 
 // User data methods

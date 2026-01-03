@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"errors"
 	"regexp"
 	"strconv"
@@ -373,24 +374,23 @@ func (ts *TransactionService) GetNegativeTransactionsCumulative() (int, error) {
 	return ts.GetNegativeTransactionsByYear(0) // 0 means all-time/cumulative
 }
 
-// GetPopularMessages returns messages with the most reactions
-// Filters out messages where >50% of reactions are 'bangbang' (these are typically important announcements, not funny posts)
-// Prioritizes messages with 'joy' emoji reactions (funny posts)
-func (ts *TransactionService) GetPopularMessages(limit int, year int) ([]*PopularMessage, error) {
-	query := `
-		WITH message_reactions AS (
-			SELECT
-				message_id,
-				-- Get any non-null channel_id for this message (all reactions to same message should have same channel)
-				MAX(channel_id) FILTER (WHERE channel_id IS NOT NULL AND channel_id != '') as channel_id,
-				COUNT(*) as total_reactions,
-				SUM(CASE WHEN emoji_name = 'bangbang' THEN 1 ELSE 0 END) as bangbang_count,
-				SUM(CASE WHEN emoji_name = 'joy' THEN 1 ELSE 0 END) as joy_count,
-				SUM(points) as total_points
-			FROM karma_transactions
-			WHERE transaction_type = 'reactji'
-				AND message_id IS NOT NULL
-	`
+	// GetPopularMessages returns messages with the most reactions
+	// Excludes 'bangbang' reactions and prioritizes messages with 'joy' emoji reactions (funny posts)
+	func (ts *TransactionService) GetPopularMessages(limit int, year int) ([]*PopularMessage, error) {
+		query := `
+			WITH message_reactions AS (
+				SELECT
+					message_id,
+					-- Get any non-null channel_id for this message (all reactions to same message should have same channel)
+					MAX(channel_id) FILTER (WHERE channel_id IS NOT NULL AND channel_id != '') as channel_id,
+					COUNT(*) as total_reactions,
+					SUM(CASE WHEN emoji_name = 'joy' THEN 1 ELSE 0 END) as joy_count,
+					SUM(points) as total_points
+				FROM karma_transactions
+				WHERE transaction_type = 'reactji'
+					AND message_id IS NOT NULL
+					AND emoji_name != 'bangbang'
+		`
 
 	args := []interface{}{}
 	if year > 0 {
@@ -398,23 +398,20 @@ func (ts *TransactionService) GetPopularMessages(limit int, year int) ([]*Popula
 		args = append(args, year)
 	}
 
-	query += `
-			GROUP BY message_id
-		)
-		SELECT
-			channel_id,
-			message_id,
-			total_reactions as reaction_count,
-			total_points
-		FROM message_reactions
-		WHERE
-			-- Filter out messages where >50% are bangbang reactions
-			(bangbang_count::float / NULLIF(total_reactions, 0)) <= 0.5
-		ORDER BY
-			-- Prioritize messages with joy emoji
-			joy_count DESC,
-			total_reactions DESC
-		LIMIT $` + strconv.Itoa(len(args)+1)
+		query += `
+				GROUP BY message_id
+			)
+			SELECT
+				channel_id,
+				message_id,
+				total_reactions as reaction_count,
+				total_points
+			FROM message_reactions
+			ORDER BY
+				-- Prioritize messages with joy emoji
+				joy_count DESC,
+				total_reactions DESC
+			LIMIT $` + strconv.Itoa(len(args)+1)
 
 	args = append(args, limit)
 
@@ -459,4 +456,131 @@ func (ts *TransactionService) UpdateChannelIDForMessage(messageID, channelID str
 	}
 
 	return nil
+}
+
+// BackfillChannelIDsFromTransactions fills missing channel_id values from other rows
+// with the same message_id when there is exactly one distinct channel_id.
+func (ts *TransactionService) BackfillChannelIDsFromTransactions() (int64, error) {
+	query := `
+		UPDATE karma_transactions t
+		SET channel_id = s.channel_id
+		FROM (
+			SELECT message_id, MAX(channel_id) AS channel_id
+			FROM karma_transactions
+			WHERE channel_id IS NOT NULL AND channel_id != ''
+			GROUP BY message_id
+			HAVING COUNT(DISTINCT channel_id) = 1
+		) s
+		WHERE t.message_id = s.message_id
+		  AND (t.channel_id IS NULL OR t.channel_id = '')
+	`
+
+	result, err := ts.db.SQL.Exec(query)
+	if err != nil {
+		return 0, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+
+	return rowsAffected, nil
+}
+
+// GetMessageAuthorByMessageID returns the to_user associated with a message_id.
+// This is derived from reactji transactions where to_user is the message author.
+func (ts *TransactionService) GetMessageAuthorByMessageID(messageID string) (*string, error) {
+	query := `
+		SELECT to_user
+		FROM karma_transactions
+		WHERE message_id = $1
+		  AND transaction_type = 'reactji'
+		GROUP BY to_user
+		ORDER BY COUNT(*) DESC
+		LIMIT 1
+	`
+
+	var author sql.NullString
+	if err := ts.db.SQL.QueryRow(query, messageID).Scan(&author); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if !author.Valid || author.String == "" {
+		return nil, nil
+	}
+	return &author.String, nil
+}
+
+// GetChannelIDForMessage returns any stored channel_id for a message_id.
+func (ts *TransactionService) GetChannelIDForMessage(messageID string) (*string, error) {
+	query := `
+		SELECT MAX(channel_id) FILTER (WHERE channel_id IS NOT NULL AND channel_id != '')
+		FROM karma_transactions
+		WHERE message_id = $1
+	`
+
+	var channel sql.NullString
+	if err := ts.db.SQL.QueryRow(query, messageID).Scan(&channel); err != nil {
+		return nil, err
+	}
+	if !channel.Valid || channel.String == "" {
+		return nil, nil
+	}
+	return &channel.String, nil
+}
+
+// GetPopularMessageDetails returns cached Slack metadata for a message_id.
+func (ts *TransactionService) GetPopularMessageDetails(messageID string) (*PopularMessageDetails, error) {
+	query := `
+		SELECT channel_id, message_text, permalink, author_id, author_name, author_avatar, image_url, is_reply, is_ignored
+		FROM popular_message_cache
+		WHERE message_id = $1
+	`
+
+	details := &PopularMessageDetails{MessageID: messageID}
+	err := ts.db.SQL.QueryRow(query, messageID).Scan(
+		&details.ChannelID,
+		&details.Text,
+		&details.Permalink,
+		&details.AuthorID,
+		&details.AuthorName,
+		&details.AuthorAvatar,
+		&details.ImageURL,
+		&details.IsReply,
+		&details.IsIgnored,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return details, nil
+}
+
+// UpsertPopularMessageDetails stores cached Slack metadata for a message_id.
+func (ts *TransactionService) UpsertPopularMessageDetails(messageID string, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL *string, isReply, isIgnored *bool) error {
+	query := `
+		INSERT INTO popular_message_cache
+			(message_id, channel_id, message_text, permalink, author_id, author_name, author_avatar, image_url, is_reply, is_ignored, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+		ON CONFLICT (message_id) DO UPDATE SET
+			channel_id = COALESCE(EXCLUDED.channel_id, popular_message_cache.channel_id),
+			message_text = COALESCE(EXCLUDED.message_text, popular_message_cache.message_text),
+			permalink = COALESCE(EXCLUDED.permalink, popular_message_cache.permalink),
+			author_id = COALESCE(EXCLUDED.author_id, popular_message_cache.author_id),
+			author_name = COALESCE(EXCLUDED.author_name, popular_message_cache.author_name),
+			author_avatar = COALESCE(EXCLUDED.author_avatar, popular_message_cache.author_avatar),
+			image_url = COALESCE(EXCLUDED.image_url, popular_message_cache.image_url),
+			is_reply = COALESCE(EXCLUDED.is_reply, popular_message_cache.is_reply),
+			is_ignored = COALESCE(EXCLUDED.is_ignored, popular_message_cache.is_ignored),
+			updated_at = NOW()
+	`
+
+	_, err := ts.db.SQL.Exec(query, messageID, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, isReply, isIgnored)
+	return err
 }

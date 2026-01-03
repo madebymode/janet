@@ -2,7 +2,14 @@ package slack
 
 import (
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/slack-go/slack"
@@ -16,22 +23,70 @@ type Service struct {
 	slackClient   *slack.Client
 	channelCache  []slack.Channel
 	cacheFetchedAt time.Time
+	messageCache   map[string]messageCacheEntry
+	messageCacheMu sync.RWMutex
+	attachmentsDir string
+	attachmentsURL string
+	slackToken     string
 }
 
+var ignoredPlusRegex = regexp.MustCompile(`\+{4,}`)
+
 // NewService creates a new Slack service
-func NewService(bot *janet.Bot) *Service {
+func NewService(bot *janet.Bot, opts ServiceOptions) *Service {
 	return &Service{
-		bot:         bot,
-		slackClient: nil,
+		bot:            bot,
+		slackClient:    nil,
+		messageCache:   make(map[string]messageCacheEntry),
+		attachmentsDir: opts.AttachmentsDir,
+		attachmentsURL: strings.TrimRight(opts.AttachmentsURL, "/"),
+		slackToken:     opts.SlackToken,
 	}
 }
 
 // NewWebService creates a new Slack service with a standalone client for web-only mode
-func NewWebService(slackClient *slack.Client) *Service {
+func NewWebService(slackClient *slack.Client, opts ServiceOptions) *Service {
 	return &Service{
-		bot:         nil,
-		slackClient: slackClient,
+		bot:            nil,
+		slackClient:    slackClient,
+		messageCache:   make(map[string]messageCacheEntry),
+		attachmentsDir: opts.AttachmentsDir,
+		attachmentsURL: strings.TrimRight(opts.AttachmentsURL, "/"),
+		slackToken:     opts.SlackToken,
 	}
+}
+
+// ServiceOptions controls Slack metadata enrichment behavior.
+type ServiceOptions struct {
+	AttachmentsDir string
+	AttachmentsURL string
+	SlackToken     string
+}
+
+type messageCacheEntry struct {
+	details   *MessageDetails
+	expiresAt time.Time
+}
+
+func (s *Service) getCachedMessageDetails(channelID, messageID string) (*MessageDetails, bool) {
+	key := channelID + ":" + messageID
+	s.messageCacheMu.RLock()
+	entry, ok := s.messageCache[key]
+	s.messageCacheMu.RUnlock()
+	if !ok || time.Now().After(entry.expiresAt) {
+		return nil, false
+	}
+	return entry.details, true
+}
+
+func (s *Service) setCachedMessageDetails(channelID, messageID string, details *MessageDetails) {
+	key := channelID + ":" + messageID
+	s.messageCacheMu.Lock()
+	s.messageCache[key] = messageCacheEntry{
+		details:   details,
+		expiresAt: time.Now().Add(15 * time.Minute),
+	}
+	s.messageCacheMu.Unlock()
 }
 
 // EnrichUsersWithSlackInfo enriches user summaries with Slack profile information
@@ -97,7 +152,21 @@ func (s *Service) GetMessagePermalink(channelID, messageID string) (string, erro
 		Ts:      messageID,
 	}
 
-	return client.GetPermalink(params)
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		permalink, err := client.GetPermalink(params)
+		if err == nil {
+			return permalink, nil
+		}
+		if rateLimitErr, ok := err.(*slack.RateLimitedError); ok {
+			time.Sleep(rateLimitErr.RetryAfter + (1 * time.Second))
+			lastErr = err
+			continue
+		}
+		return "", err
+	}
+
+	return "", lastErr
 }
 
 // GetMessageText fetches the text content of a Slack message
@@ -113,14 +182,25 @@ func (s *Service) GetMessageText(channelID, messageID string) (string, error) {
 		return "", fmt.Errorf("no slack client available")
 	}
 
-	// Fetch conversation history for this specific message
-	history, err := client.GetConversationHistory(&slack.GetConversationHistoryParameters{
-		ChannelID: channelID,
-		Latest:    messageID,
-		Inclusive: true,
-		Limit:     1,
-	})
-
+	var history *slack.GetConversationHistoryResponse
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		// Fetch conversation history for this specific message
+		history, err = client.GetConversationHistory(&slack.GetConversationHistoryParameters{
+			ChannelID: channelID,
+			Latest:    messageID,
+			Inclusive: true,
+			Limit:     1,
+		})
+		if err == nil {
+			break
+		}
+		if rateLimitErr, ok := err.(*slack.RateLimitedError); ok {
+			time.Sleep(rateLimitErr.RetryAfter + (1 * time.Second))
+			continue
+		}
+		return "", fmt.Errorf("failed to get conversation history: %w", err)
+	}
 	if err != nil {
 		return "", fmt.Errorf("failed to get conversation history: %w", err)
 	}
@@ -130,6 +210,260 @@ func (s *Service) GetMessageText(channelID, messageID string) (string, error) {
 	}
 
 	return history.Messages[0].Text, nil
+}
+
+// MessageDetails captures Slack message metadata used in the UI.
+type MessageDetails struct {
+	Text         string
+	Permalink    string
+	AuthorID     string
+	AuthorName   string
+	AuthorAvatar string
+	ImageURL     string
+	HasImage     bool
+	IsReply      bool
+	IsIgnored    bool
+}
+
+// GetMessageDetails fetches message text, permalink, author, and image URL.
+func (s *Service) GetMessageDetails(channelID, messageID string) (*MessageDetails, error) {
+	if details, ok := s.getCachedMessageDetails(channelID, messageID); ok {
+		return details, nil
+	}
+
+	permalink, err := s.GetMessagePermalink(channelID, messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	message, err := s.getMessage(channelID, messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	details := &MessageDetails{
+		Text:      message.Text,
+		Permalink: permalink,
+	}
+	if message.ThreadTimestamp != "" && message.ThreadTimestamp != message.Timestamp {
+		details.IsReply = true
+	}
+	if ignoredPlusRegex.MatchString(message.Text) {
+		details.IsIgnored = true
+	}
+
+	imageURL, hasImage := s.getMessageImageURL(message)
+	details.HasImage = hasImage
+	if imageURL != "" {
+		details.ImageURL = imageURL
+	}
+
+	if message.User != "" {
+		details.AuthorID = message.User
+		if user, err := s.getUserInfoWithRetry(message.User); err == nil {
+			details.AuthorName = user.Name
+			details.AuthorAvatar = user.Profile.Image72
+		}
+	} else if message.Username != "" {
+		details.AuthorName = message.Username
+	}
+
+	s.setCachedMessageDetails(channelID, messageID, details)
+	return details, nil
+}
+
+func (s *Service) getMessage(channelID, messageID string) (slack.Message, error) {
+	var client *slack.Client
+
+	if s.slackClient != nil {
+		client = s.slackClient
+	} else if s.bot != nil && s.bot.Config.SlackWebClient != nil {
+		client = s.bot.Config.SlackWebClient
+	} else {
+		return slack.Message{}, fmt.Errorf("no slack client available")
+	}
+
+	var history *slack.GetConversationHistoryResponse
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		history, err = client.GetConversationHistory(&slack.GetConversationHistoryParameters{
+			ChannelID: channelID,
+			Latest:    messageID,
+			Inclusive: true,
+			Limit:     1,
+		})
+		if err == nil {
+			break
+		}
+		if rateLimitErr, ok := err.(*slack.RateLimitedError); ok {
+			time.Sleep(rateLimitErr.RetryAfter + (1 * time.Second))
+			continue
+		}
+		return slack.Message{}, fmt.Errorf("failed to get conversation history: %w", err)
+	}
+	if err != nil {
+		return slack.Message{}, fmt.Errorf("failed to get conversation history: %w", err)
+	}
+
+	if len(history.Messages) == 0 {
+		return slack.Message{}, fmt.Errorf("message not found")
+	}
+
+	return history.Messages[0], nil
+}
+
+func (s *Service) getUserInfoWithRetry(userID string) (*slack.User, error) {
+	var client *slack.Client
+
+	if s.slackClient != nil {
+		client = s.slackClient
+	} else if s.bot != nil && s.bot.Config.SlackWebClient != nil {
+		client = s.bot.Config.SlackWebClient
+	} else {
+		return nil, fmt.Errorf("no slack client available")
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		user, err := client.GetUserInfo(userID)
+		if err == nil {
+			return user, nil
+		}
+		if rateLimitErr, ok := err.(*slack.RateLimitedError); ok {
+			time.Sleep(rateLimitErr.RetryAfter + (1 * time.Second))
+			lastErr = err
+			continue
+		}
+		return nil, err
+	}
+
+	return nil, lastErr
+}
+
+func (s *Service) getMessageImageURL(message slack.Message) (string, bool) {
+	for _, file := range message.Files {
+		if !strings.HasPrefix(file.Mimetype, "image/") {
+			continue
+		}
+		hasImage := true
+		if localURL := s.downloadSlackImage(file); localURL != "" {
+			return localURL, hasImage
+		}
+		if file.PermalinkPublic != "" {
+			return file.PermalinkPublic, hasImage
+		}
+		return "", hasImage
+	}
+
+	for _, attachment := range message.Attachments {
+		if attachment.ImageURL != "" {
+			return attachment.ImageURL, true
+		}
+		if attachment.ThumbURL != "" {
+			return attachment.ThumbURL, true
+		}
+	}
+
+	return "", false
+}
+
+func (s *Service) downloadSlackImage(file slack.File) string {
+	if s.attachmentsDir == "" || s.attachmentsURL == "" {
+		return ""
+	}
+	if s.slackToken == "" {
+		return ""
+	}
+
+	downloadURL := file.URLPrivateDownload
+	if downloadURL == "" {
+		downloadURL = file.URLPrivate
+	}
+	if downloadURL == "" {
+		return ""
+	}
+
+	filename := s.buildAttachmentFilename(file)
+	if filename == "" {
+		return ""
+	}
+
+	localURL, err := s.downloadFile(downloadURL, filename)
+	if err != nil {
+		return ""
+	}
+
+	return localURL
+}
+
+func (s *Service) buildAttachmentFilename(file slack.File) string {
+	ext := sanitizeExtension(file.Filetype)
+	if ext == "" {
+		ext = "img"
+	}
+
+	if file.ID == "" {
+		return ""
+	}
+
+	return file.ID + "." + ext
+}
+
+func sanitizeExtension(ext string) string {
+	ext = strings.ToLower(ext)
+	for _, r := range ext {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		return ""
+	}
+	return ext
+}
+
+func (s *Service) downloadFile(url, filename string) (string, error) {
+	if err := os.MkdirAll(s.attachmentsDir, 0o755); err != nil {
+		return "", err
+	}
+
+	destPath := filepath.Join(s.attachmentsDir, filename)
+	if _, err := os.Stat(destPath); err == nil {
+		return s.attachmentsURL + "/" + filename, nil
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.slackToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("unexpected status downloading file: %s", resp.Status)
+	}
+
+	tmpPath := destPath + ".part"
+	fileHandle, err := os.Create(tmpPath)
+	if err != nil {
+		return "", err
+	}
+	defer fileHandle.Close()
+
+	if _, err := io.Copy(fileHandle, resp.Body); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+
+	return s.attachmentsURL + "/" + filename, nil
 }
 
 // FindChannelByMessageID finds the channel_id for a message by checking all accessible channels
@@ -235,4 +569,66 @@ func (s *Service) FindChannelByMessageID(messageID string) (string, error) {
 	}
 
 	return "", fmt.Errorf("message not found in any accessible channel")
+}
+
+// FindChannelByMessageAuthorAndTimestamp searches Slack for a message by author and timestamp.
+// Requires a user token with search:read scope.
+func (s *Service) FindChannelByMessageAuthorAndTimestamp(authorUsername, messageID string) (string, error) {
+	if authorUsername == "" {
+		return "", fmt.Errorf("author username required")
+	}
+
+	var client *slack.Client
+	if s.slackClient != nil {
+		client = s.slackClient
+	} else if s.bot != nil && s.bot.Config.SlackWebClient != nil {
+		client = s.bot.Config.SlackWebClient
+	} else {
+		return "", fmt.Errorf("no slack client available")
+	}
+
+	ts, err := strconv.ParseFloat(messageID, 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid message timestamp: %w", err)
+	}
+
+	msgTime := time.Unix(int64(ts), 0)
+	after := msgTime.Add(-24 * time.Hour).Format("2006-01-02")
+	before := msgTime.Add(24 * time.Hour).Format("2006-01-02")
+	query := fmt.Sprintf("from:%s after:%s before:%s", authorUsername, after, before)
+
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		result, err := client.SearchMessages(query, slack.SearchParameters{
+			Count:     50,
+			Page:      1,
+			Highlight: false,
+		})
+		if err != nil {
+			if rateLimitErr, ok := err.(*slack.RateLimitedError); ok {
+				time.Sleep(rateLimitErr.RetryAfter + (1 * time.Second))
+				lastErr = err
+				continue
+			}
+			return "", err
+		}
+
+		for _, match := range result.Matches {
+			if match.Timestamp == messageID {
+				if match.Channel.ID != "" {
+					msg, err := s.getMessage(match.Channel.ID, messageID)
+					if err != nil {
+						continue
+					}
+					if len(msg.Reactions) > 0 {
+						return match.Channel.ID, nil
+					}
+				}
+			}
+		}
+
+		return "", fmt.Errorf("message not found in search results")
+	}
+
+	return "", lastErr
 }

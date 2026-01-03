@@ -26,11 +26,21 @@ func main() {
 		stdlog.Fatal("Failed to create server:", err)
 	}
 
+	attachmentsDir := os.Getenv("JANET_ATTACHMENTS_DIR")
+	if attachmentsDir == "" {
+		attachmentsDir = "attachments"
+	}
+	attachmentsURL := "/attachments"
+
 	// Initialize Slack service
 	var slackService handlers.SlackService
 	if srv.GetBot() != nil {
 		// Bot is enabled, use bot's Slack client
-		slackService = slack.NewService(srv.GetBot())
+		slackService = slack.NewService(srv.GetBot(), slack.ServiceOptions{
+			AttachmentsDir: attachmentsDir,
+			AttachmentsURL: attachmentsURL,
+			SlackToken:     os.Getenv("JANET_SLACK_TOKEN"),
+		})
 		srv.GetLogger().Info("using bot's Slack client")
 	} else {
 		// Bot is disabled, create standalone Slack client for API calls
@@ -42,11 +52,15 @@ func main() {
 
 		if webToken != "" {
 			slackClient := slackgo.New(webToken)
-			slackService = slack.NewWebService(slackClient)
+			slackService = slack.NewWebService(slackClient, slack.ServiceOptions{
+				AttachmentsDir: attachmentsDir,
+				AttachmentsURL: attachmentsURL,
+				SlackToken:     webToken,
+			})
 			srv.GetLogger().Info("using standalone Slack client for web mode")
 		} else {
 			// No Slack client available
-			slackService = slack.NewWebService(nil)
+			slackService = slack.NewWebService(nil, slack.ServiceOptions{})
 			srv.GetLogger().Error("no Slack token available, Slack features disabled")
 		}
 	}

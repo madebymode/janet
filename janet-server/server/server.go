@@ -69,6 +69,12 @@ func NewServer(configPath string, webFS embed.FS) (*Server, error) {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
+	if config.AttachmentsDir != "" {
+		if err := os.MkdirAll(config.AttachmentsDir, 0o755); err != nil {
+			return nil, fmt.Errorf("failed to create attachments dir: %w", err)
+		}
+	}
+
 	// Initialize database
 	v2db, err := database.NewV2(&database.Config{
 		Driver: config.DatabaseDriver,
@@ -93,6 +99,16 @@ func NewServer(configPath string, webFS embed.FS) (*Server, error) {
 		logger.Err(err).Error("failed to reset sequences, may cause duplicate key errors")
 	} else {
 		logger.Info("database sequences reset successfully")
+	}
+
+	if config.RunChannelIDBackfill {
+		logger.Info("backfilling missing channel_id values from transactions")
+		updated, err := v2db.BackfillChannelIDsFromTransactions()
+		if err != nil {
+			logger.Err(err).Error("failed to backfill channel_id values")
+		} else {
+			logger.KV("updated_rows", updated).Info("channel_id backfill complete")
+		}
 	}
 
 	// Create server

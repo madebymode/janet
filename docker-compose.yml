@@ -94,6 +94,14 @@ services:
       retries: 3
 
   # Web UI Service (without bot functionality)
+  janet-init:
+    image: busybox:1.36
+    container_name: janet-init
+    command: ["/bin/sh", "-c", "mkdir -p /var/lib/janet/attachments && chown -R 1001:1001 /var/lib/janet/attachments"]
+    volumes:
+      - janet_attachments:/var/lib/janet/attachments
+    restart: "no"
+
   janet-web:
     image: troyxmccall/janet:web
     build:
@@ -108,7 +116,7 @@ services:
       # Web Configuration
       JANET_WEB_LISTEN_ADDR: 0.0.0.0:8080
       JANET_WEB_PASSWORD: ${JANET_WEB_PASSWORD:-admin123}
-      JANET_WEB_PUBLIC_URL: http://localhost:8080
+      JANET_ATTACHMENTS_DIR: /var/lib/janet/attachments
       
       # Disable bot functionality in web service
       JANET_BOT_ENABLED: "false"
@@ -120,7 +128,11 @@ services:
       JANET_GOOD_PLACE_JUDGE_BOT_ID: ${JANET_GOOD_PLACE_JUDGE_BOT_ID}
     ports:
       - "8080:8080"
+    volumes:
+      - janet_attachments:/var/lib/janet/attachments
     depends_on:
+      janet-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     networks:
@@ -138,3 +150,4 @@ networks:
 
 volumes:
   postgres_data:
+  janet_attachments:

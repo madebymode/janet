@@ -1,13 +1,24 @@
 import React from 'react'
 import { useApi } from '../hooks/useApi'
 
-function PopularMessagesPage({ selectedYear }) {
+function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
+  const { data: leaderboard } = useApi(
+    selectedYear === 0
+      ? '/api/leaderboard?limit=100'
+      : `/api/leaderboard?limit=100&year=${selectedYear}`
+  )
+
   const { data: messages, loading, error } = useApi(
     selectedYear !== null
-      ? `/api/stats/popular-messages?limit=100&year=${selectedYear === 0 ? '' : selectedYear}`
+      ? `/api/stats/popular-messages?limit=200&year=${selectedYear === 0 ? '' : selectedYear}`
       : null,
     [selectedYear]
   )
+
+  const filteredMessages = React.useMemo(() => {
+    if (!messages || !selectedUser) return messages
+    return messages.filter((message) => message.author_name === selectedUser)
+  }, [messages, selectedUser])
 
   if (loading) {
     return (
@@ -64,6 +75,23 @@ function PopularMessagesPage({ selectedYear }) {
     )
   }
 
+  if (filteredMessages && filteredMessages.length === 0) {
+    return (
+      <div style={{
+        textAlign: 'center',
+        padding: '3rem',
+        background: '#f9f9f9',
+        borderRadius: '12px',
+        margin: '1rem 0'
+      }}>
+        <p style={{ fontSize: '3rem', margin: '0 0 1rem 0' }}>🧵</p>
+        <p style={{ color: '#666', margin: 0 }}>
+          No popular messages for {selectedUser ? `@${selectedUser}` : 'this period'}
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="popular-messages-page">
       <div style={{
@@ -88,11 +116,79 @@ function PopularMessagesPage({ selectedYear }) {
         </p>
       </div>
 
+      <div className="card" style={{
+        background: 'white',
+        borderRadius: '12px',
+        padding: '1.5rem',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+        border: '1px solid #f0f0f0',
+        marginBottom: '2rem'
+      }}>
+        <h3 style={{
+          margin: '0 0 1rem 0',
+          fontSize: '1.2rem',
+          fontWeight: '600',
+          color: '#2c3e50',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem'
+        }}>
+          <span>🔎</span>
+          Filter by User
+        </h3>
+        <div style={{
+          display: 'flex',
+          gap: '1rem',
+          alignItems: 'center',
+          flexWrap: 'wrap'
+        }}>
+          <div style={{ flex: 1, minWidth: '200px' }}>
+            <select
+              value={selectedUser}
+              onChange={(e) => onUserChange(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '2px solid #e9ecef',
+                borderRadius: '8px',
+                fontSize: '1rem',
+                backgroundColor: 'white',
+                color: '#495057',
+                fontWeight: '500'
+              }}
+            >
+              <option value="">All users</option>
+              {leaderboard?.users?.map(user => (
+                <option key={user.username} value={user.username}>
+                  @{user.username} ({(user.total_points || 0).toLocaleString()} points)
+                </option>
+              ))}
+            </select>
+          </div>
+          {selectedUser && (
+            <div style={{
+              background: '#eef2ff',
+              color: '#3f51b5',
+              padding: '0.5rem 1rem',
+              borderRadius: '20px',
+              fontSize: '0.875rem',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}>
+              <span>✅</span>
+              Filtering: @{selectedUser}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div style={{
         display: 'grid',
         gap: '1rem'
       }}>
-        {messages.map((message, index) => (
+        {filteredMessages.map((message, index) => (
           <div
             key={`${message.channel_id}-${message.message_id}`}
             style={{
@@ -185,6 +281,34 @@ function PopularMessagesPage({ selectedYear }) {
                   </div>
                 </div>
 
+                {(message.author_name || message.author_avatar) && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    marginBottom: '0.75rem',
+                    color: '#555'
+                  }}>
+                    {message.author_avatar && (
+                      <img
+                        src={message.author_avatar}
+                        alt={message.author_name || 'Slack user'}
+                        style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '50%',
+                          objectFit: 'cover'
+                        }}
+                      />
+                    )}
+                    {message.author_name && (
+                      <span style={{ fontWeight: '600' }}>
+                        @{message.author_name}
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {message.text && (
                   <div style={{
                     background: '#f8f9fa',
@@ -194,9 +318,35 @@ function PopularMessagesPage({ selectedYear }) {
                     fontStyle: 'italic',
                     color: '#555',
                     lineHeight: '1.5',
-                    borderLeft: '3px solid #667eea'
+                    borderLeft: '3px solid #667eea',
+                    overflowWrap: 'anywhere',
+                    wordBreak: 'break-word',
+                    whiteSpace: 'pre-wrap'
                   }}>
                     "{message.text}"
+                  </div>
+                )}
+
+                {message.image_url && (
+                  <div style={{
+                    marginBottom: '0.75rem',
+                    background: '#f8f9fa',
+                    borderRadius: '10px',
+                    border: '1px solid #eee',
+                    padding: '0.5rem'
+                  }}>
+                    <img
+                      src={message.image_url}
+                      alt="Message attachment"
+                      style={{
+                        width: '100%',
+                        maxHeight: '360px',
+                        objectFit: 'contain',
+                        borderRadius: '8px',
+                        display: 'block'
+                      }}
+                      loading="lazy"
+                    />
                   </div>
                 )}
 

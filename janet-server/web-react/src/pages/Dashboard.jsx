@@ -95,7 +95,7 @@ useEffect(() => {
 
   const handleUserChange = (username) => {
     setSelectedUser(username)
-    if (username && activeTab !== 'users') {
+    if (username && activeTab !== 'users' && activeTab !== 'popular') {
       setActiveTab('users')
     }
   }

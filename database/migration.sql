@@ -62,6 +62,36 @@ CREATE INDEX IF NOT EXISTS idx_karma_transactions_emoji ON karma_transactions(em
 CREATE INDEX IF NOT EXISTS idx_karma_transactions_type ON karma_transactions(transaction_type);
 CREATE INDEX IF NOT EXISTS idx_karma_transactions_year ON karma_transactions(year);
 
+-- Cached popular message details to avoid repeated Slack API calls
+CREATE TABLE IF NOT EXISTS popular_message_cache
+(
+  message_id TEXT PRIMARY KEY,
+  channel_id TEXT,
+  message_text TEXT,
+  permalink TEXT,
+  author_id TEXT,
+  author_name TEXT,
+  author_avatar TEXT,
+  image_url TEXT,
+  is_reply BOOLEAN DEFAULT FALSE,
+  is_ignored BOOLEAN DEFAULT FALSE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE IF EXISTS popular_message_cache
+  ADD COLUMN IF NOT EXISTS channel_id TEXT,
+  ADD COLUMN IF NOT EXISTS message_text TEXT,
+  ADD COLUMN IF NOT EXISTS permalink TEXT,
+  ADD COLUMN IF NOT EXISTS author_id TEXT,
+  ADD COLUMN IF NOT EXISTS author_name TEXT,
+  ADD COLUMN IF NOT EXISTS author_avatar TEXT,
+  ADD COLUMN IF NOT EXISTS image_url TEXT,
+  ADD COLUMN IF NOT EXISTS is_reply BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS is_ignored BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+CREATE INDEX IF NOT EXISTS idx_popular_message_cache_updated_at ON popular_message_cache(updated_at);
+
 -- User summary tables
 CREATE TABLE IF NOT EXISTS user_summary_current
 (
@@ -170,4 +200,3 @@ DELETE FROM user_summary_monthly
 WHERE username !~ '^[a-zA-Z0-9._-]+$'
    OR username = ''
    OR LENGTH(username) > 50;
-

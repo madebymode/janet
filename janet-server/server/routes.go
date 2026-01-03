@@ -3,6 +3,7 @@ package server
 import (
 	"mime"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -19,6 +20,9 @@ func (s *Server) setupRoutes() {
 
 	// Static files with proper MIME types
 	s.router.PathPrefix("/static/").Handler(s.staticFileHandler())
+	if s.config.AttachmentsDir != "" {
+		s.router.PathPrefix("/attachments/").Handler(s.attachmentsFileHandler())
+	}
 
 	// Public API routes
 	api := s.router.PathPrefix("/api").Subrouter()
@@ -86,6 +90,24 @@ func (s *Server) staticFileHandler() http.Handler {
 
 		w.Header().Set("Content-Type", contentType)
 		w.Write(content)
+	})
+}
+
+// attachmentsFileHandler serves cached Slack attachments from disk
+func (s *Server) attachmentsFileHandler() http.Handler {
+	root := http.Dir(s.config.AttachmentsDir)
+	fileServer := http.FileServer(root)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/attachments/")
+		if path == "" || path == "/" {
+			http.NotFound(w, r)
+			return
+		}
+		if _, err := os.Stat(filepath.Join(s.config.AttachmentsDir, path)); err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		http.StripPrefix("/attachments/", fileServer).ServeHTTP(w, r)
 	})
 }
 

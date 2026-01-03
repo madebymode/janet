@@ -30,6 +30,8 @@ type Config struct {
 	WebListenAddr string `json:"webListenAddr"`
 	WebPublicURL  string `json:"webPublicURL"`
 	BotEnabled    bool   `json:"botEnabled"`
+	AttachmentsDir string `json:"attachmentsDir"`
+	RunChannelIDBackfill bool `json:"runChannelIDBackfill"`
 
 	// Bot personalities
 	GoodJanetUsername string `json:"goodJanetUsername"`
@@ -57,6 +59,8 @@ func defaultConfig() *Config {
 		WebListenAddr:     ":8080",
 		WebPublicURL:      "http://localhost:8080",
 		BotEnabled:        true,
+		AttachmentsDir:    "attachments",
+		RunChannelIDBackfill: false,
 		GoodJanetUsername: "Good Janet",
 		BadJanetUsername:  "Bad Janet",
 		UserBlacklist:     []string{},
@@ -92,6 +96,15 @@ func LoadConfig(configPath string) (*Config, error) {
 	}
 	if val := os.Getenv("JANET_WEB_LISTEN_ADDR"); val != "" {
 		config.WebListenAddr = val
+	}
+	if val := os.Getenv("JANET_WEB_PUBLIC_URL"); val != "" {
+		config.WebPublicURL = val
+	}
+	if val := os.Getenv("JANET_ATTACHMENTS_DIR"); val != "" {
+		config.AttachmentsDir = val
+	}
+	if val := os.Getenv("JANET_RUN_CHANNELID_BACKFILL"); val != "" {
+		config.RunChannelIDBackfill = strings.ToLower(val) == "true" || val == "1" || strings.ToLower(val) == "yes"
 	}
 	if val := os.Getenv("JANET_BOT_ENABLED"); val != "" {
 		config.BotEnabled = strings.ToLower(val) == "true" || val == "1" || strings.ToLower(val) == "yes"

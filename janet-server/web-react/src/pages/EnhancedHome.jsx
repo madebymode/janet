@@ -577,7 +577,7 @@ const UserPointsOverTimeChart = ({ userData, userMonthlyData, selectedUser, sele
 function EnhancedHome() {
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedUser, setSelectedUser] = useState('')
-  const [selectedYear, setSelectedYear] = useState(2026)
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   
   const { data: stats, loading: statsLoading, error: statsError } = useApi(`/api/stats?year=${selectedYear}`)
   const { data: leaderboard, loading: leaderboardLoading, error: leaderboardError } = useApi(`/api/leaderboard?limit=50&year=${selectedYear}`)
@@ -1002,10 +1002,14 @@ function EnhancedHome() {
                     backgroundColor: 'white'
                   }}
                 >
-                  <option value={2026}>2026</option>
-                  <option value={2025}>2025</option>
-                  <option value={2024}>2024</option>
-                  <option value={2023}>2023</option>
+                  {(() => {
+                    const currentYear = new Date().getFullYear();
+                    const years = [];
+                    for (let year = currentYear; year >= 2023; year--) {
+                      years.push(<option key={year} value={year}>{year}</option>);
+                    }
+                    return years;
+                  })()}
                   <option value="all">All Time</option>
                 </select>
               </div>

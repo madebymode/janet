@@ -26,7 +26,6 @@ function Dashboard() {
   const [selectedYear, setSelectedYear] = useState(() => {
     if (urlYear) {
       if (urlYear === 'all') return 0
-      if (urlYear === 'current') return new Date().getFullYear()
       const yearNum = parseInt(urlYear)
       return isNaN(yearNum) ? new Date().getFullYear() : yearNum
     }
@@ -37,9 +36,7 @@ function Dashboard() {
   // Sync state → URL
 useEffect(() => {
   const base = activeTab === 'overview' ? '/overview' : `/${activeTab}`;
-  const yrSeg = selectedYear === 0 ? 'all' :
-                selectedYear === new Date().getFullYear() ? 'current' :
-                selectedYear;
+  const yrSeg = selectedYear === 0 ? 'all' : selectedYear;
   const path = activeTab === 'users' && selectedUser
                  ? `${base}/${yrSeg}/${selectedUser}`
                  : `${base}/${yrSeg}`;
@@ -50,7 +47,7 @@ useEffect(() => {
 useEffect(() => {
   let yearVal;
   if (urlYear === 'all') yearVal = 0;
-  else if (urlYear === 'current' || !urlYear) yearVal = new Date().getFullYear();
+  else if (!urlYear) yearVal = new Date().getFullYear();
   else {
     const parsed = parseInt(urlYear, 10);
     yearVal = isNaN(parsed) ? new Date().getFullYear() : parsed;
@@ -195,10 +192,11 @@ useEffect(() => {
               {selectedYear === 0 && (
                 <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>📊 Complete History</span>
               )}
-              {selectedYear > 0 && (
-                <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>
-                  {selectedYear === new Date().getFullYear() ? '🕐 Current Year' : '📅 Historical Data'}
-                </span>
+              {selectedYear > 0 && selectedYear === new Date().getFullYear() && (
+                <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>🕐 Current Year</span>
+              )}
+              {selectedYear > 0 && selectedYear !== new Date().getFullYear() && (
+                <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>📅 Historical Data</span>
               )}
             </div>
           </div>

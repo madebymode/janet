@@ -34,6 +34,9 @@ type Handler struct {
 	popularDropMu        sync.Mutex
 	popularDropCount     int
 	popularDropLastLog   time.Time
+	popularFailMu        sync.Mutex
+	popularFailCounts    map[string]int
+	popularFailLastLog   time.Time
 }
 
 // NewHandler creates a new handler instance
@@ -46,7 +49,21 @@ func NewHandler(db *database.V2DB, bot *janet.Bot, logger *log.Log, slack SlackS
 		popularBackfillQueue: make(chan popularBackfillJob, 2000),
 		popularBackfillSeen:  make(map[string]struct{}),
 		popularDropLastLog:   time.Now(),
+		popularFailCounts:    make(map[string]int),
+		popularFailLastLog:   time.Now(),
 	}
 	h.startPopularMessageBackfillWorker()
 	return h
+}
+
+func (h *Handler) popPopularBackfillFailures() map[string]int {
+	h.popularFailMu.Lock()
+	defer h.popularFailMu.Unlock()
+	if len(h.popularFailCounts) == 0 {
+		return nil
+	}
+	counts := h.popularFailCounts
+	h.popularFailCounts = make(map[string]int)
+	h.popularFailLastLog = time.Now()
+	return counts
 }

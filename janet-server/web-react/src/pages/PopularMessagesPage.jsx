@@ -350,6 +350,44 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
                   </div>
                 )}
 
+                {message.attachment_url && (
+                  <div style={{
+                    marginBottom: '0.75rem',
+                    background: '#f8f9fa',
+                    borderRadius: '10px',
+                    border: '1px solid #eee',
+                    padding: '0.75rem'
+                  }}>
+                    {message.attachment_mime?.startsWith('video/') ? (
+                      <video
+                        controls
+                        src={message.attachment_url}
+                        style={{
+                          width: '100%',
+                          maxHeight: '360px',
+                          borderRadius: '8px',
+                          display: 'block'
+                        }}
+                      />
+                    ) : message.attachment_mime?.startsWith('audio/') ? (
+                      <audio
+                        controls
+                        src={message.attachment_url}
+                        style={{ width: '100%' }}
+                      />
+                    ) : (
+                      <a
+                        href={message.attachment_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: '#667eea', fontWeight: '600' }}
+                      >
+                        Download attachment
+                      </a>
+                    )}
+                  </div>
+                )}
+
                 {message.permalink && (
                   <div style={{
                     display: 'flex',

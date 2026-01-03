@@ -124,6 +124,9 @@ type PopularMessageDetails struct {
 	AuthorName *string
 	AuthorAvatar *string
 	ImageURL  *string
+	AttachmentURL *string
+	AttachmentMime *string
+	ReactionCount *int
 	IsReply   *bool
 	IsIgnored *bool
 }

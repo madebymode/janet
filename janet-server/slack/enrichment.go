@@ -220,9 +220,13 @@ type MessageDetails struct {
 	AuthorName   string
 	AuthorAvatar string
 	ImageURL     string
+	AttachmentURL  string
+	AttachmentMime string
 	HasImage     bool
+	HasAttachment bool
 	IsReply      bool
 	IsIgnored    bool
+	ReactionCount int
 }
 
 // GetMessageDetails fetches message text, permalink, author, and image URL.
@@ -257,6 +261,15 @@ func (s *Service) GetMessageDetails(channelID, messageID string) (*MessageDetail
 	if imageURL != "" {
 		details.ImageURL = imageURL
 	}
+
+	attachmentURL, attachmentMime, hasAttachment := s.getMessageAttachment(message)
+	details.HasAttachment = hasAttachment
+	if attachmentURL != "" {
+		details.AttachmentURL = attachmentURL
+		details.AttachmentMime = attachmentMime
+	}
+
+	details.ReactionCount = countMessageReactions(message)
 
 	if message.User != "" {
 		details.AuthorID = message.User
@@ -346,7 +359,7 @@ func (s *Service) getMessageImageURL(message slack.Message) (string, bool) {
 			continue
 		}
 		hasImage := true
-		if localURL := s.downloadSlackImage(file); localURL != "" {
+		if localURL := s.downloadSlackFile(file); localURL != "" {
 			return localURL, hasImage
 		}
 		if file.PermalinkPublic != "" {
@@ -367,7 +380,28 @@ func (s *Service) getMessageImageURL(message slack.Message) (string, bool) {
 	return "", false
 }
 
-func (s *Service) downloadSlackImage(file slack.File) string {
+func (s *Service) getMessageAttachment(message slack.Message) (string, string, bool) {
+	for _, file := range message.Files {
+		if strings.HasPrefix(file.Mimetype, "image/") {
+			continue
+		}
+		if !strings.HasPrefix(file.Mimetype, "video/") && !strings.HasPrefix(file.Mimetype, "audio/") {
+			continue
+		}
+		hasAttachment := true
+		if localURL := s.downloadSlackFile(file); localURL != "" {
+			return localURL, file.Mimetype, hasAttachment
+		}
+		if file.PermalinkPublic != "" {
+			return file.PermalinkPublic, file.Mimetype, hasAttachment
+		}
+		return "", file.Mimetype, hasAttachment
+	}
+
+	return "", "", false
+}
+
+func (s *Service) downloadSlackFile(file slack.File) string {
 	if s.attachmentsDir == "" || s.attachmentsURL == "" {
 		return ""
 	}
@@ -394,6 +428,14 @@ func (s *Service) downloadSlackImage(file slack.File) string {
 	}
 
 	return localURL
+}
+
+func countMessageReactions(message slack.Message) int {
+	total := 0
+	for _, reaction := range message.Reactions {
+		total += reaction.Count
+	}
+	return total
 }
 
 func (s *Service) buildAttachmentFilename(file slack.File) string {

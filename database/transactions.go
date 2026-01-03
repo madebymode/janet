@@ -514,6 +514,43 @@ func (ts *TransactionService) GetMessageAuthorByMessageID(messageID string) (*st
 	return &author.String, nil
 }
 
+// GetPopularMessageIDsNeedingBackfill returns message_ids with incomplete cached details.
+func (ts *TransactionService) GetPopularMessageIDsNeedingBackfill(limit int) ([]string, error) {
+	query := `
+		SELECT message_id
+		FROM popular_message_cache
+		WHERE (is_reply IS NULL OR is_reply = false)
+		  AND (is_ignored IS NULL OR is_ignored = false)
+		  AND (
+			channel_id IS NULL OR channel_id = '' OR
+			message_text IS NULL OR
+			permalink IS NULL OR
+			author_name IS NULL OR
+			image_url IS NULL OR
+			attachment_url IS NULL OR
+			slack_reaction_count IS NULL
+		  )
+		ORDER BY updated_at ASC
+		LIMIT $1
+	`
+
+	rows, err := ts.db.SQL.Query(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 // GetChannelIDForMessage returns any stored channel_id for a message_id.
 func (ts *TransactionService) GetChannelIDForMessage(messageID string) (*string, error) {
 	query := `
@@ -535,7 +572,7 @@ func (ts *TransactionService) GetChannelIDForMessage(messageID string) (*string,
 // GetPopularMessageDetails returns cached Slack metadata for a message_id.
 func (ts *TransactionService) GetPopularMessageDetails(messageID string) (*PopularMessageDetails, error) {
 	query := `
-		SELECT channel_id, message_text, permalink, author_id, author_name, author_avatar, image_url, is_reply, is_ignored
+		SELECT channel_id, message_text, permalink, author_id, author_name, author_avatar, image_url, attachment_url, attachment_mime, slack_reaction_count, is_reply, is_ignored
 		FROM popular_message_cache
 		WHERE message_id = $1
 	`
@@ -549,6 +586,9 @@ func (ts *TransactionService) GetPopularMessageDetails(messageID string) (*Popul
 		&details.AuthorName,
 		&details.AuthorAvatar,
 		&details.ImageURL,
+		&details.AttachmentURL,
+		&details.AttachmentMime,
+		&details.ReactionCount,
 		&details.IsReply,
 		&details.IsIgnored,
 	)
@@ -563,11 +603,11 @@ func (ts *TransactionService) GetPopularMessageDetails(messageID string) (*Popul
 }
 
 // UpsertPopularMessageDetails stores cached Slack metadata for a message_id.
-func (ts *TransactionService) UpsertPopularMessageDetails(messageID string, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL *string, isReply, isIgnored *bool) error {
+func (ts *TransactionService) UpsertPopularMessageDetails(messageID string, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, attachmentURL, attachmentMime *string, reactionCount *int, isReply, isIgnored *bool) error {
 	query := `
 		INSERT INTO popular_message_cache
-			(message_id, channel_id, message_text, permalink, author_id, author_name, author_avatar, image_url, is_reply, is_ignored, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+			(message_id, channel_id, message_text, permalink, author_id, author_name, author_avatar, image_url, attachment_url, attachment_mime, slack_reaction_count, is_reply, is_ignored, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
 		ON CONFLICT (message_id) DO UPDATE SET
 			channel_id = COALESCE(EXCLUDED.channel_id, popular_message_cache.channel_id),
 			message_text = COALESCE(EXCLUDED.message_text, popular_message_cache.message_text),
@@ -576,11 +616,14 @@ func (ts *TransactionService) UpsertPopularMessageDetails(messageID string, chan
 			author_name = COALESCE(EXCLUDED.author_name, popular_message_cache.author_name),
 			author_avatar = COALESCE(EXCLUDED.author_avatar, popular_message_cache.author_avatar),
 			image_url = COALESCE(EXCLUDED.image_url, popular_message_cache.image_url),
+			attachment_url = COALESCE(EXCLUDED.attachment_url, popular_message_cache.attachment_url),
+			attachment_mime = COALESCE(EXCLUDED.attachment_mime, popular_message_cache.attachment_mime),
+			slack_reaction_count = COALESCE(EXCLUDED.slack_reaction_count, popular_message_cache.slack_reaction_count),
 			is_reply = COALESCE(EXCLUDED.is_reply, popular_message_cache.is_reply),
 			is_ignored = COALESCE(EXCLUDED.is_ignored, popular_message_cache.is_ignored),
 			updated_at = NOW()
 	`
 
-	_, err := ts.db.SQL.Exec(query, messageID, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, isReply, isIgnored)
+	_, err := ts.db.SQL.Exec(query, messageID, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, attachmentURL, attachmentMime, reactionCount, isReply, isIgnored)
 	return err
 }

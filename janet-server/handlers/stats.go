@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"sort"
 
 	"github.com/gorilla/mux"
 	"github.com/troyxmccall/janet/database"
@@ -474,10 +475,17 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 
 	// For each message, get the Slack permalink and message text
 	response := make([]map[string]interface{}, 0, len(messages))
+	type popularEntry struct {
+		data          map[string]interface{}
+		reactionCount int
+		totalPoints   int
+	}
+	entries := make([]popularEntry, 0, len(messages))
 	skippedMissing := 0
 	enqueuedBackfill := 0
 	skippedReplies := 0
 	skippedTestChannels := 0
+	skippedIgnored := 0
 	for _, msg := range messages {
 		msgData := map[string]interface{}{
 			"channel_id":     msg.ChannelID,
@@ -497,6 +505,8 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 		hasPermalink := false
 		hasAuthor := false
 		imageKnown := false
+		attachmentKnown := false
+		reactionKnown := false
 		if cached, err := h.db.GetPopularMessageDetails(msg.MessageID); err == nil && cached != nil {
 			if cached.ChannelID != nil && channelID == "" {
 				channelID = *cached.ChannelID
@@ -524,8 +534,25 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 					msgData["image_url"] = *cached.ImageURL
 				}
 			}
+			if cached.AttachmentURL != nil && *cached.AttachmentURL != "" {
+				msgData["attachment_url"] = *cached.AttachmentURL
+			}
+			if cached.AttachmentURL != nil {
+				attachmentKnown = true
+				if cached.AttachmentMime != nil && *cached.AttachmentMime != "" {
+					msgData["attachment_mime"] = *cached.AttachmentMime
+				}
+			}
+			if cached.ReactionCount != nil {
+				reactionKnown = true
+				msgData["reaction_count"] = *cached.ReactionCount
+			}
 			if cached.IsReply != nil && *cached.IsReply {
 				skippedReplies++
+				continue
+			}
+			if cached.IsIgnored != nil && *cached.IsIgnored {
+				skippedIgnored++
 				continue
 			}
 		} else if err != nil {
@@ -550,7 +577,7 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 			if derivedAuthor, err := h.db.GetMessageAuthorByMessageID(msg.MessageID); err == nil && derivedAuthor != nil {
 				msgData["author_name"] = *derivedAuthor
 				hasAuthor = true
-				if err := h.db.UpsertPopularMessageDetails(msg.MessageID, nil, nil, nil, nil, derivedAuthor, nil, nil, nil, nil); err != nil {
+				if err := h.db.UpsertPopularMessageDetails(msg.MessageID, nil, nil, nil, nil, derivedAuthor, nil, nil, nil, nil, nil, nil, nil); err != nil {
 					h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to cache derived author")
 				}
 			} else if err != nil {
@@ -560,18 +587,35 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 
 		if channelID != "" {
 			cachedChannelID := channelID
-			if err := h.db.UpsertPopularMessageDetails(msg.MessageID, &cachedChannelID, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
+			if err := h.db.UpsertPopularMessageDetails(msg.MessageID, &cachedChannelID, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
 				h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to update popular message cache")
 			}
 		}
 
-		if !hasText || !hasPermalink || !hasAuthor || !imageKnown {
+		if !hasText || !hasPermalink || !hasAuthor || !imageKnown || !attachmentKnown || !reactionKnown {
 			h.enqueuePopularMessageBackfill(msg.MessageID, channelID)
 			enqueuedBackfill++
 			skippedMissing++
 		}
+		reactionCount := msg.ReactionCount
+		if cachedCount, ok := msgData["reaction_count"].(int); ok {
+			reactionCount = cachedCount
+		}
+		entries = append(entries, popularEntry{
+			data:          msgData,
+			reactionCount: reactionCount,
+			totalPoints:   msg.TotalPoints,
+		})
+	}
 
-		response = append(response, msgData)
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].reactionCount == entries[j].reactionCount {
+			return entries[i].totalPoints > entries[j].totalPoints
+		}
+		return entries[i].reactionCount > entries[j].reactionCount
+	})
+	for _, entry := range entries {
+		response = append(response, entry.data)
 		if len(response) >= limit {
 			break
 		}
@@ -579,5 +623,9 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
-	h.logger.KV("returned", len(response)).KV("requested", limit).KV("skipped_missing", skippedMissing).KV("skipped_replies", skippedReplies).KV("skipped_test_channels", skippedTestChannels).KV("backfill_enqueued", enqueuedBackfill).Info("popular messages response")
+	logEvent := h.logger.KV("returned", len(response)).KV("requested", limit).KV("skipped_missing", skippedMissing).KV("skipped_replies", skippedReplies).KV("skipped_ignored", skippedIgnored).KV("skipped_test_channels", skippedTestChannels).KV("backfill_enqueued", enqueuedBackfill)
+	if failures := h.popPopularBackfillFailures(); failures != nil {
+		logEvent = logEvent.KV("backfill_failures", failures)
+	}
+	logEvent.Info("popular messages response")
 }

@@ -73,6 +73,9 @@ CREATE TABLE IF NOT EXISTS popular_message_cache
   author_name TEXT,
   author_avatar TEXT,
   image_url TEXT,
+  attachment_url TEXT,
+  attachment_mime TEXT,
+  slack_reaction_count INTEGER,
   is_reply BOOLEAN DEFAULT FALSE,
   is_ignored BOOLEAN DEFAULT FALSE,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -86,6 +89,9 @@ ALTER TABLE IF EXISTS popular_message_cache
   ADD COLUMN IF NOT EXISTS author_name TEXT,
   ADD COLUMN IF NOT EXISTS author_avatar TEXT,
   ADD COLUMN IF NOT EXISTS image_url TEXT,
+  ADD COLUMN IF NOT EXISTS attachment_url TEXT,
+  ADD COLUMN IF NOT EXISTS attachment_mime TEXT,
+  ADD COLUMN IF NOT EXISTS slack_reaction_count INTEGER,
   ADD COLUMN IF NOT EXISTS is_reply BOOLEAN DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS is_ignored BOOLEAN DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();

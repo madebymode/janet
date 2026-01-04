@@ -384,6 +384,83 @@ func (ts *TransactionService) GetPopularMessagesByUser(limit int, year int, user
 	return ts.getPopularMessages(limit, year, username, funnyBias)
 }
 
+func (ts *TransactionService) GetPopularMessagesPage(limit int, offset int, year int, username string, minReactions int, funnyBias bool) ([]*PopularMessage, error) {
+	query := `
+		WITH message_reactions AS (
+			SELECT
+				message_id,
+				MAX(channel_id) FILTER (WHERE channel_id IS NOT NULL AND channel_id != '') as channel_id,
+				COUNT(*) as total_reactions,
+				SUM(CASE WHEN emoji_name = 'joy' THEN 1 ELSE 0 END) as joy_count,
+				SUM(points) as total_points
+			FROM karma_transactions
+			WHERE transaction_type = 'reactji'
+				AND message_id IS NOT NULL
+				AND emoji_name != 'bangbang'
+	`
+
+	args := []interface{}{}
+	if year > 0 {
+		query += " AND year = $1"
+		args = append(args, year)
+	}
+	if username != "" {
+		query += " AND to_user = $" + strconv.Itoa(len(args)+1)
+		args = append(args, username)
+	}
+
+	query += `
+			GROUP BY message_id
+		)
+		SELECT
+			channel_id,
+			message_id,
+			total_reactions as reaction_count,
+			total_points
+		FROM message_reactions
+	`
+
+	if minReactions > 0 {
+		query += " WHERE total_reactions >= $" + strconv.Itoa(len(args)+1)
+		args = append(args, minReactions)
+	}
+
+	query += `
+		ORDER BY
+	`
+
+	if funnyBias {
+		query += `
+			joy_count DESC,
+		`
+	}
+
+	query += `
+			total_reactions DESC
+		LIMIT $` + strconv.Itoa(len(args)+1) + `
+		OFFSET $` + strconv.Itoa(len(args)+2)
+
+	args = append(args, limit, offset)
+
+	rows, err := ts.db.SQL.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []*PopularMessage
+	for rows.Next() {
+		msg := &PopularMessage{}
+		err := rows.Scan(&msg.ChannelID, &msg.MessageID, &msg.ReactionCount, &msg.TotalPoints)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, msg)
+	}
+
+	return messages, nil
+}
+
 func (ts *TransactionService) getPopularMessages(limit int, year int, username string, funnyBias bool) ([]*PopularMessage, error) {
 	query := `
 		WITH message_reactions AS (

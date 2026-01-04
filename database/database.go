@@ -133,6 +133,10 @@ func (db *V2DB) GetPopularMessagesByUser(limit int, year int, username string, f
 	return db.transactionService().GetPopularMessagesByUser(limit, year, username, funnyBias)
 }
 
+func (db *V2DB) GetPopularMessagesPage(limit int, offset int, year int, username string, minReactions int, funnyBias bool) ([]*PopularMessage, error) {
+	return db.transactionService().GetPopularMessagesPage(limit, offset, year, username, minReactions, funnyBias)
+}
+
 func (db *V2DB) GetPopularMessagesSince(since time.Time) ([]*PopularMessage, error) {
 	return db.transactionService().GetPopularMessagesSince(since)
 }

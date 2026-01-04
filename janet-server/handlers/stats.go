@@ -480,26 +480,28 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 	funnyBias := r.URL.Query().Get("funny_bias") == "1"
 	includeMeta := r.URL.Query().Get("include_meta") == "1"
 
-	// Fetch more messages than requested since we apply filters and backfill state
-	// Use a higher cap to make totals more accurate for pagination.
-	fetchLimit := (offset + limit) * 10
-	minFetch := 500
-	if filterUser != "" {
-		minFetch = 2000
-	}
-	if fetchLimit < minFetch {
-		fetchLimit = minFetch
-	}
-	if fetchLimit > 5000 {
-		fetchLimit = 5000
-	}
-
 	var messages []*database.PopularMessage
 	var err error
-	if filterUser != "" {
-		messages, err = h.db.GetPopularMessagesByUser(fetchLimit, year, filterUser, funnyBias)
+	if mediaOnly {
+		// Fetch extra because we filter media in-memory.
+		fetchLimit := (offset + limit) * 10
+		minFetch := 500
+		if filterUser != "" {
+			minFetch = 2000
+		}
+		if fetchLimit < minFetch {
+			fetchLimit = minFetch
+		}
+		if fetchLimit > 5000 {
+			fetchLimit = 5000
+		}
+		if filterUser != "" {
+			messages, err = h.db.GetPopularMessagesByUser(fetchLimit, year, filterUser, funnyBias)
+		} else {
+			messages, err = h.db.GetPopularMessages(fetchLimit, year, funnyBias)
+		}
 	} else {
-		messages, err = h.db.GetPopularMessages(fetchLimit, year, funnyBias)
+		messages, err = h.db.GetPopularMessagesPage(limit, offset, year, filterUser, minReactions, funnyBias)
 	}
 	if err != nil {
 		h.logger.Err(err).Error("failed to get popular messages")
@@ -695,16 +697,21 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 			h.logger.Err(err).Error("failed to get popular message count")
 		}
 	}
-	available := len(entries)
-	start := offset
-	if start > available {
-		start = available
+	var sliced []popularEntry
+	if mediaOnly {
+		available := len(entries)
+		start := offset
+		if start > available {
+			start = available
+		}
+		end := start + limit
+		if end > available {
+			end = available
+		}
+		sliced = entries[start:end]
+	} else {
+		sliced = entries
 	}
-	end := start + limit
-	if end > available {
-		end = available
-	}
-	sliced := entries[start:end]
 
 	response := make([]map[string]interface{}, 0, len(sliced))
 	for _, entry := range sliced {

@@ -201,6 +201,7 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
   }
 
   if (error) {
+    const errorMessage = typeof error === 'string' ? error : error?.message || 'Unknown error'
     return (
       <div style={{
         background: '#fee',
@@ -210,7 +211,7 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
         margin: '1rem 0'
       }}>
         <p style={{ color: '#c33', margin: 0 }}>
-          ⚠️ Error loading popular messages: {error.message || 'Unknown error'}
+          ⚠️ Error loading popular messages: {errorMessage}
         </p>
       </div>
     )

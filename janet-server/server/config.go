@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -27,11 +28,13 @@ type Config struct {
 	ReactjiEnabled   bool   `json:"reactjiEnabled"`
 
 	// Web server
-	WebListenAddr string `json:"webListenAddr"`
-	WebPublicURL  string `json:"webPublicURL"`
-	BotEnabled    bool   `json:"botEnabled"`
-	AttachmentsDir string `json:"attachmentsDir"`
-	RunChannelIDBackfill bool `json:"runChannelIDBackfill"`
+	WebListenAddr        string  `json:"webListenAddr"`
+	WebPublicURL         string  `json:"webPublicURL"`
+	RateLimitRPS         float64 `json:"rateLimitRps"`
+	RateLimitBurst       int     `json:"rateLimitBurst"`
+	BotEnabled           bool    `json:"botEnabled"`
+	AttachmentsDir       string  `json:"attachmentsDir"`
+	RunChannelIDBackfill bool    `json:"runChannelIDBackfill"`
 
 	// Bot personalities
 	GoodJanetUsername string `json:"goodJanetUsername"`
@@ -47,24 +50,26 @@ type Config struct {
 // defaultConfig returns default configuration values
 func defaultConfig() *Config {
 	return &Config{
-		DatabaseDriver:    "postgres",
-		DatabaseURL:       "postgres://janet:janet@localhost:5432/janet?sslmode=disable",
-		MaxPoints:         5,
-		LeaderboardLimit:  10,
-		ReplyType:         "thread",
-		Debug:             false,
-		SelfKarma:         false,
-		Motivate:          true,
-		ReactjiEnabled:    true,
-		WebListenAddr:     ":8080",
-		WebPublicURL:      "http://localhost:8080",
-		BotEnabled:        true,
-		AttachmentsDir:    "attachments",
+		DatabaseDriver:       "postgres",
+		DatabaseURL:          "postgres://janet:janet@localhost:5432/janet?sslmode=disable",
+		MaxPoints:            5,
+		LeaderboardLimit:     10,
+		ReplyType:            "thread",
+		Debug:                false,
+		SelfKarma:            false,
+		Motivate:             true,
+		ReactjiEnabled:       true,
+		WebListenAddr:        ":8080",
+		WebPublicURL:         "http://localhost:8080",
+		RateLimitRPS:         20,
+		RateLimitBurst:       60,
+		BotEnabled:           true,
+		AttachmentsDir:       "attachments",
 		RunChannelIDBackfill: false,
-		GoodJanetUsername: "Good Janet",
-		BadJanetUsername:  "Bad Janet",
-		UserBlacklist:     []string{},
-		UserAliases:       make(map[string]string),
+		GoodJanetUsername:    "Good Janet",
+		BadJanetUsername:     "Bad Janet",
+		UserBlacklist:        []string{},
+		UserAliases:          make(map[string]string),
 	}
 }
 
@@ -99,6 +104,16 @@ func LoadConfig(configPath string) (*Config, error) {
 	}
 	if val := os.Getenv("JANET_WEB_PUBLIC_URL"); val != "" {
 		config.WebPublicURL = val
+	}
+	if val := os.Getenv("JANET_WEB_RATE_LIMIT_RPS"); val != "" {
+		if parsed, err := strconv.ParseFloat(val, 64); err == nil {
+			config.RateLimitRPS = parsed
+		}
+	}
+	if val := os.Getenv("JANET_WEB_RATE_LIMIT_BURST"); val != "" {
+		if parsed, err := strconv.Atoi(val); err == nil {
+			config.RateLimitBurst = parsed
+		}
 	}
 	if val := os.Getenv("JANET_ATTACHMENTS_DIR"); val != "" {
 		config.AttachmentsDir = val

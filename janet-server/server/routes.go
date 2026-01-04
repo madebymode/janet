@@ -17,6 +17,7 @@ func (s *Server) setupRoutes() {
 	// Apply middleware to all routes (order matters!)
 	s.router.Use(s.requestLoggingMiddleware)
 	s.router.Use(s.securityHeadersMiddleware)
+	s.router.Use(s.rateLimitMiddleware)
 
 	// Static files with proper MIME types
 	s.router.PathPrefix("/static/").Handler(s.staticFileHandler())

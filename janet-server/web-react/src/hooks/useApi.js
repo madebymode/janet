@@ -53,6 +53,13 @@ export const api = {
   async get(url) {
     const response = await fetch(url)
     if (!response.ok) {
+      const retryAfter = response.headers.get('Retry-After')
+      if (response.status === 429) {
+        const retryMessage = retryAfter
+          ? `Rate limited. Retry after ${retryAfter}s.`
+          : 'Rate limited. Retry in a moment.'
+        throw new Error(retryMessage)
+      }
       throw new Error(`HTTP error! status: ${response.status}`)
     }
     return response.json()
@@ -67,6 +74,13 @@ export const api = {
       body: JSON.stringify(data)
     })
     if (!response.ok) {
+      const retryAfter = response.headers.get('Retry-After')
+      if (response.status === 429) {
+        const retryMessage = retryAfter
+          ? `Rate limited. Retry after ${retryAfter}s.`
+          : 'Rate limited. Retry in a moment.'
+        throw new Error(retryMessage)
+      }
       throw new Error(`HTTP error! status: ${response.status}`)
     }
     return response.json()
@@ -77,6 +91,13 @@ export const api = {
       method: 'DELETE'
     })
     if (!response.ok) {
+      const retryAfter = response.headers.get('Retry-After')
+      if (response.status === 429) {
+        const retryMessage = retryAfter
+          ? `Rate limited. Retry after ${retryAfter}s.`
+          : 'Rate limited. Retry in a moment.'
+        throw new Error(retryMessage)
+      }
       throw new Error(`HTTP error! status: ${response.status}`)
     }
     return response.json()

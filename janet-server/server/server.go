@@ -45,15 +45,16 @@ type HandlerService interface {
 
 // Server represents the janet server
 type Server struct {
-	config    *Config
-	db        *database.V2DB
-	bot       *janet.Bot
-	logger    *log.Log
-	startTime time.Time
-	router    *mux.Router
-	templates map[string]*template.Template
-	webFS     embed.FS
-	handlers  HandlerService
+	config      *Config
+	db          *database.V2DB
+	bot         *janet.Bot
+	logger      *log.Log
+	startTime   time.Time
+	router      *mux.Router
+	templates   map[string]*template.Template
+	webFS       embed.FS
+	handlers    HandlerService
+	rateLimiter *rateLimiter
 }
 
 // NewServer creates a new janet server instance
@@ -113,11 +114,12 @@ func NewServer(configPath string, webFS embed.FS) (*Server, error) {
 
 	// Create server
 	server := &Server{
-		config:    config,
-		db:        v2db,
-		logger:    logger,
-		startTime: time.Now(),
-		webFS:     webFS,
+		config:      config,
+		db:          v2db,
+		logger:      logger,
+		startTime:   time.Now(),
+		webFS:       webFS,
+		rateLimiter: newRateLimiter(config.RateLimitRPS, config.RateLimitBurst),
 	}
 
 	// Setup templates

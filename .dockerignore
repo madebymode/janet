@@ -76,3 +76,5 @@ temp/
 # Development tools
 Makefile
 docker-compose.override.yml
+janet_attachments_backup/*
+janet_database_backups/*

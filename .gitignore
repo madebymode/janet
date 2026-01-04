@@ -13,3 +13,4 @@ janet-backfill
 janet-server/janet-server
 janet-server/janet-server-test
 janet_attachments_backup/*
+janet_database_backups/*

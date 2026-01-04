@@ -115,7 +115,6 @@ services:
       
       # Web Configuration
       JANET_WEB_LISTEN_ADDR: 0.0.0.0:8080
-      JANET_WEB_PASSWORD: ${JANET_WEB_PASSWORD:-admin123}
       JANET_ATTACHMENTS_DIR: /var/lib/janet/attachments
       
       # Disable bot functionality in web service
@@ -126,8 +125,6 @@ services:
       JANET_SLACK_SOCKET_TOKEN: ${JANET_SLACK_SOCKET_TOKEN}
       JANET_WEB_TOKEN: ${JANET_WEB_TOKEN}
       JANET_GOOD_PLACE_JUDGE_BOT_ID: ${JANET_GOOD_PLACE_JUDGE_BOT_ID}
-    ports:
-      - "8080:8080"
     volumes:
       - janet_attachments:/var/lib/janet/attachments
     depends_on:
@@ -143,6 +140,48 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.13.0
+    container_name: janet-oauth2-proxy
+    command:
+      - --provider=google
+      - --http-address=0.0.0.0:4180
+      - --upstream=http://janet-web:8080
+      - --redirect-url=${OAUTH2_PROXY_REDIRECT_URL:-https://janet.madebymode.com/oauth2/callback}
+      - --email-domain=${OAUTH2_PROXY_EMAIL_DOMAINS:-madebymode.com}
+      - --cookie-secure=${OAUTH2_PROXY_COOKIE_SECURE:-true}
+      - --cookie-httponly=${OAUTH2_PROXY_COOKIE_HTTPONLY:-true}
+      - --cookie-samesite=${OAUTH2_PROXY_COOKIE_SAMESITE:-lax}
+      - --custom-sign-in-logo=/oauth/janet.jpeg
+      - --custom-templates-dir=/oauth/templates
+      - --banner=${OAUTH2_PROXY_BANNER:-}
+      - --footer=${OAUTH2_PROXY_FOOTER:-}
+      - --display-htpasswd-form=${OAUTH2_PROXY_DISPLAY_HTPASSWD_FORM:-false}
+      - --show-debug-on-error=${OAUTH2_PROXY_SHOW_DEBUG_ON_ERROR:-false}
+    environment:
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
+      OAUTH2_PROXY_REDIRECT_URL: ${OAUTH2_PROXY_REDIRECT_URL}
+      OAUTH2_PROXY_EMAIL_DOMAINS: ${OAUTH2_PROXY_EMAIL_DOMAINS}
+      OAUTH2_PROXY_COOKIE_SECURE: ${OAUTH2_PROXY_COOKIE_SECURE}
+      OAUTH2_PROXY_COOKIE_HTTPONLY: ${OAUTH2_PROXY_COOKIE_HTTPONLY}
+      OAUTH2_PROXY_COOKIE_SAMESITE: ${OAUTH2_PROXY_COOKIE_SAMESITE}
+      OAUTH2_PROXY_BANNER: ${OAUTH2_PROXY_BANNER}
+      OAUTH2_PROXY_FOOTER: ${OAUTH2_PROXY_FOOTER}
+      OAUTH2_PROXY_DISPLAY_HTPASSWD_FORM: ${OAUTH2_PROXY_DISPLAY_HTPASSWD_FORM}
+      OAUTH2_PROXY_SHOW_DEBUG_ON_ERROR: ${OAUTH2_PROXY_SHOW_DEBUG_ON_ERROR}
+    volumes:
+      - ./oauth:/oauth:ro
+    ports:
+      - "8080:4180"
+    depends_on:
+      janet-web:
+        condition: service_healthy
+    networks:
+      - janet-network
+    restart: unless-stopped
 
 networks:
   janet-network:

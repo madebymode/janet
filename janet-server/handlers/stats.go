@@ -448,11 +448,17 @@ func (h *Handler) HandleAPIPointsOverTime(w http.ResponseWriter, r *http.Request
 
 // HandleAPIPopularMessages handles requests for popular messages with reactions
 func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Request) {
-	limit := 100
+	limit := 15
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil {
 			limit = parsed
 		}
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 15 {
+		limit = 15
 	}
 
 	offset := 0
@@ -480,28 +486,25 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 	funnyBias := r.URL.Query().Get("funny_bias") == "1"
 	includeMeta := r.URL.Query().Get("include_meta") == "1"
 
+	// Fetch extra because we filter and paginate in-memory.
+	fetchLimit := (offset + limit) * 10
+	minFetch := 500
+	if filterUser != "" {
+		minFetch = 2000
+	}
+	if fetchLimit < minFetch {
+		fetchLimit = minFetch
+	}
+	if fetchLimit > 5000 {
+		fetchLimit = 5000
+	}
+
 	var messages []*database.PopularMessage
 	var err error
-	if mediaOnly {
-		// Fetch extra because we filter media in-memory.
-		fetchLimit := (offset + limit) * 10
-		minFetch := 500
-		if filterUser != "" {
-			minFetch = 2000
-		}
-		if fetchLimit < minFetch {
-			fetchLimit = minFetch
-		}
-		if fetchLimit > 5000 {
-			fetchLimit = 5000
-		}
-		if filterUser != "" {
-			messages, err = h.db.GetPopularMessagesByUser(fetchLimit, year, filterUser, funnyBias)
-		} else {
-			messages, err = h.db.GetPopularMessages(fetchLimit, year, funnyBias)
-		}
+	if filterUser != "" {
+		messages, err = h.db.GetPopularMessagesByUser(fetchLimit, year, filterUser, funnyBias)
 	} else {
-		messages, err = h.db.GetPopularMessagesPage(limit, offset, year, filterUser, minReactions, funnyBias)
+		messages, err = h.db.GetPopularMessages(fetchLimit, year, funnyBias)
 	}
 	if err != nil {
 		h.logger.Err(err).Error("failed to get popular messages")
@@ -513,7 +516,6 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 	type popularEntry struct {
 		data          map[string]interface{}
 		reactionCount int
-		totalPoints   int
 	}
 	entries := make([]popularEntry, 0, len(messages))
 	skippedMissing := 0
@@ -526,7 +528,6 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 			"channel_id":     msg.ChannelID,
 			"message_id":     msg.MessageID,
 			"reaction_count": msg.ReactionCount,
-			"total_points":   msg.TotalPoints,
 		}
 
 		// Get channel_id if missing (fallback to search)
@@ -586,7 +587,11 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 			}
 			if cached.ReactionCount != nil {
 				reactionKnown = true
-				msgData["reaction_count"] = *cached.ReactionCount
+				cachedCount := *cached.ReactionCount
+				if cachedCount < msg.ReactionCount {
+					cachedCount = msg.ReactionCount
+				}
+				msgData["reaction_count"] = cachedCount
 			}
 			if cached.IsReply != nil && *cached.IsReply {
 				skippedReplies++
@@ -679,39 +684,36 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 		entries = append(entries, popularEntry{
 			data:          msgData,
 			reactionCount: reactionCount,
-			totalPoints:   msg.TotalPoints,
 		})
 	}
 
 	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].reactionCount == entries[j].reactionCount {
-			return entries[i].totalPoints > entries[j].totalPoints
-		}
 		return entries[i].reactionCount > entries[j].reactionCount
 	})
 	total := len(entries)
-	if !mediaOnly {
-		if dbTotal, err := h.db.GetPopularMessageCount(year, filterUser, minReactions); err == nil {
+	if mediaOnly {
+		if dbTotal, err := h.db.GetPopularMessageCountWithMedia(year, filterUser, minReactions, funnyBias); err == nil {
+			total = dbTotal
+		} else {
+			h.logger.Err(err).Error("failed to get popular message count")
+		}
+	} else {
+		if dbTotal, err := h.db.GetPopularMessageCount(year, filterUser, minReactions, funnyBias); err == nil {
 			total = dbTotal
 		} else {
 			h.logger.Err(err).Error("failed to get popular message count")
 		}
 	}
-	var sliced []popularEntry
-	if mediaOnly {
-		available := len(entries)
-		start := offset
-		if start > available {
-			start = available
-		}
-		end := start + limit
-		if end > available {
-			end = available
-		}
-		sliced = entries[start:end]
-	} else {
-		sliced = entries
+	available := len(entries)
+	start := offset
+	if start > available {
+		start = available
 	}
+	end := start + limit
+	if end > available {
+		end = available
+	}
+	sliced := entries[start:end]
 
 	response := make([]map[string]interface{}, 0, len(sliced))
 	for _, entry := range sliced {
@@ -750,6 +752,7 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 			"pending": skippedMissing,
 			"queue_size": h.popularBackfillQueueSize(),
 			"queue_position": queuePosition,
+			"funny_bias": funnyBias,
 		})
 	} else {
 		json.NewEncoder(w).Encode(response)

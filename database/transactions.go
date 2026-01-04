@@ -384,94 +384,18 @@ func (ts *TransactionService) GetPopularMessagesByUser(limit int, year int, user
 	return ts.getPopularMessages(limit, year, username, funnyBias)
 }
 
-func (ts *TransactionService) GetPopularMessagesPage(limit int, offset int, year int, username string, minReactions int, funnyBias bool) ([]*PopularMessage, error) {
-	query := `
-		WITH message_reactions AS (
-			SELECT
-				message_id,
-				MAX(channel_id) FILTER (WHERE channel_id IS NOT NULL AND channel_id != '') as channel_id,
-				COUNT(*) as total_reactions,
-				SUM(CASE WHEN emoji_name = 'joy' THEN 1 ELSE 0 END) as joy_count,
-				SUM(points) as total_points
-			FROM karma_transactions
-			WHERE transaction_type = 'reactji'
-				AND message_id IS NOT NULL
-				AND emoji_name != 'bangbang'
-	`
-
-	args := []interface{}{}
-	if year > 0 {
-		query += " AND year = $1"
-		args = append(args, year)
-	}
-	if username != "" {
-		query += " AND to_user = $" + strconv.Itoa(len(args)+1)
-		args = append(args, username)
-	}
-
-	query += `
-			GROUP BY message_id
-		)
-		SELECT
-			channel_id,
-			message_id,
-			total_reactions as reaction_count,
-			total_points
-		FROM message_reactions
-	`
-
-	if minReactions > 0 {
-		query += " WHERE total_reactions >= $" + strconv.Itoa(len(args)+1)
-		args = append(args, minReactions)
-	}
-
-	query += `
-		ORDER BY
-	`
-
-	if funnyBias {
-		query += `
-			joy_count DESC,
-		`
-	}
-
-	query += `
-			total_reactions DESC
-		LIMIT $` + strconv.Itoa(len(args)+1) + `
-		OFFSET $` + strconv.Itoa(len(args)+2)
-
-	args = append(args, limit, offset)
-
-	rows, err := ts.db.SQL.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var messages []*PopularMessage
-	for rows.Next() {
-		msg := &PopularMessage{}
-		err := rows.Scan(&msg.ChannelID, &msg.MessageID, &msg.ReactionCount, &msg.TotalPoints)
-		if err != nil {
-			return nil, err
-		}
-		messages = append(messages, msg)
-	}
-
-	return messages, nil
-}
-
 func (ts *TransactionService) getPopularMessages(limit int, year int, username string, funnyBias bool) ([]*PopularMessage, error) {
 	query := `
 		WITH message_reactions AS (
 			SELECT
-				message_id,
-				-- Get any non-null channel_id for this message (all reactions to same message should have same channel)
-				MAX(channel_id) FILTER (WHERE channel_id IS NOT NULL AND channel_id != '') as channel_id,
-				COUNT(*) as total_reactions,
-				SUM(CASE WHEN emoji_name = 'joy' THEN 1 ELSE 0 END) as joy_count,
-				SUM(points) as total_points
-			FROM karma_transactions
+			message_id,
+			-- Get any non-null channel_id for this message (all reactions to same message should have same channel)
+			MAX(channel_id) FILTER (WHERE channel_id IS NOT NULL AND channel_id != '') as channel_id,
+			COUNT(*) as total_reactions,
+			SUM(CASE WHEN emoji_name = 'joy' THEN 1 ELSE 0 END) as joy_count,
+			SUM(CASE WHEN emoji_name = 'lol' THEN 1 ELSE 0 END) as lol_count,
+			SUM(points) as total_points
+		FROM karma_transactions
 			WHERE transaction_type = 'reactji'
 				AND message_id IS NOT NULL
 				AND emoji_name != 'bangbang'
@@ -496,17 +420,22 @@ func (ts *TransactionService) getPopularMessages(limit int, year int, username s
 			total_reactions as reaction_count,
 			total_points
 		FROM message_reactions
-		ORDER BY
 	`
 
 	if funnyBias {
 		query += `
-			joy_count DESC,
+		WHERE (joy_count + lol_count) > 0
+		ORDER BY
+			total_reactions DESC
+		`
+	} else {
+		query += `
+		ORDER BY
+			total_reactions DESC
 		`
 	}
 
 	query += `
-			total_reactions DESC
 		LIMIT $` + strconv.Itoa(len(args)+1)
 
 	args = append(args, limit)
@@ -579,12 +508,15 @@ func (ts *TransactionService) GetPopularMessagesSince(since time.Time) ([]*Popul
 	return messages, nil
 }
 
-func (ts *TransactionService) GetPopularMessageCount(year int, username string, minReactions int) (int, error) {
+func (ts *TransactionService) GetPopularMessageCount(year int, username string, minReactions int, funnyBias bool) (int, error) {
 	query := `
 		WITH message_reactions AS (
 			SELECT
 				message_id,
-				COUNT(*) as total_reactions
+				MAX(channel_id) FILTER (WHERE channel_id IS NOT NULL AND channel_id != '') as channel_id,
+				COUNT(*) as total_reactions,
+				SUM(CASE WHEN emoji_name = 'joy' THEN 1 ELSE 0 END) as joy_count,
+				SUM(CASE WHEN emoji_name = 'lol' THEN 1 ELSE 0 END) as lol_count
 			FROM karma_transactions
 			WHERE transaction_type = 'reactji'
 				AND message_id IS NOT NULL
@@ -605,12 +537,73 @@ func (ts *TransactionService) GetPopularMessageCount(year int, username string, 
 			GROUP BY message_id
 		)
 		SELECT COUNT(*)
-		FROM message_reactions
+		FROM message_reactions mr
+		LEFT JOIN popular_message_cache pmc ON pmc.message_id = mr.message_id
+		WHERE
+			(pmc.is_reply IS NULL OR pmc.is_reply = false)
+			AND (pmc.is_ignored IS NULL OR pmc.is_ignored = false)
+			AND (COALESCE(pmc.channel_id, mr.channel_id) IS NULL OR COALESCE(pmc.channel_id, mr.channel_id) NOT LIKE 'TEST%')
 	`
 
 	if minReactions > 0 {
-		query += " WHERE total_reactions >= $" + strconv.Itoa(len(args)+1)
+		query += " AND mr.total_reactions >= $" + strconv.Itoa(len(args)+1)
 		args = append(args, minReactions)
+	}
+	if funnyBias {
+		query += " AND (mr.joy_count + mr.lol_count) > 0"
+	}
+
+	var count int
+	if err := ts.db.SQL.QueryRow(query, args...).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (ts *TransactionService) GetPopularMessageCountWithMedia(year int, username string, minReactions int, funnyBias bool) (int, error) {
+	query := `
+		WITH message_reactions AS (
+			SELECT
+				message_id,
+				MAX(channel_id) FILTER (WHERE channel_id IS NOT NULL AND channel_id != '') as channel_id,
+				COUNT(*) as total_reactions,
+				SUM(CASE WHEN emoji_name = 'joy' THEN 1 ELSE 0 END) as joy_count,
+				SUM(CASE WHEN emoji_name = 'lol' THEN 1 ELSE 0 END) as lol_count
+			FROM karma_transactions
+			WHERE transaction_type = 'reactji'
+				AND message_id IS NOT NULL
+				AND emoji_name != 'bangbang'
+	`
+
+	args := []interface{}{}
+	if year > 0 {
+		query += " AND year = $1"
+		args = append(args, year)
+	}
+	if username != "" {
+		query += " AND to_user = $" + strconv.Itoa(len(args)+1)
+		args = append(args, username)
+	}
+
+	query += `
+			GROUP BY message_id
+		)
+		SELECT COUNT(*)
+		FROM message_reactions mr
+		JOIN popular_message_cache pmc ON pmc.message_id = mr.message_id
+		WHERE
+			((pmc.image_url IS NOT NULL AND pmc.image_url != '') OR (pmc.attachment_url IS NOT NULL AND pmc.attachment_url != ''))
+			AND (pmc.is_reply IS NULL OR pmc.is_reply = false)
+			AND (pmc.is_ignored IS NULL OR pmc.is_ignored = false)
+			AND (COALESCE(pmc.channel_id, mr.channel_id) IS NULL OR COALESCE(pmc.channel_id, mr.channel_id) NOT LIKE 'TEST%')
+	`
+
+	if minReactions > 0 {
+		query += " AND mr.total_reactions >= $" + strconv.Itoa(len(args)+1)
+		args = append(args, minReactions)
+	}
+	if funnyBias {
+		query += " AND (mr.joy_count + mr.lol_count) > 0"
 	}
 
 	var count int

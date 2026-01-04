@@ -83,8 +83,26 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
   const [minReactionsInput, setMinReactionsInput] = React.useState(minReactions > 0 ? String(minReactions) : '')
   const mediaOnly = searchParams.get('media') === '1'
   const userFilter = searchParams.get('user') || ''
-  const funnyBias = userFilter === '' && searchParams.get('hallmark') !== '1'
+  const funnyBiasExplicit = searchParams.get('funny_bias') === '1'
+  const funnyBias = funnyBiasExplicit || (userFilter === '' && searchParams.get('hallmark') !== '1')
   const pageSize = 15
+  const formatMessageTimestamp = React.useCallback((messageId) => {
+    if (!messageId) return ''
+    const seconds = Number.parseFloat(messageId)
+    if (!Number.isFinite(seconds)) return ''
+    const date = new Date(seconds * 1000)
+    if (Number.isNaN(date.getTime())) return ''
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    let hours = date.getHours()
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    const suffix = hours >= 12 ? 'PM' : 'AM'
+    hours = hours % 12
+    if (hours === 0) hours = 12
+    const hourString = String(hours).padStart(2, '0')
+    return `${year}-${month}-${day} ${hourString}:${minutes} ${suffix}`
+  }, [])
 
   React.useEffect(() => {
     if (userFilter !== selectedUser) {
@@ -129,7 +147,13 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
   }
 
   const handleFunnyBiasChange = (value) => {
-    updateSearchParams({ hallmark: value ? null : 1, page: 0 })
+    const updates = { funny_bias: value ? 1 : null, page: 0 }
+    if (userFilter === '') {
+      updates.hallmark = value ? null : 1
+    } else {
+      updates.hallmark = null
+    }
+    updateSearchParams(updates)
   }
 
   const { data: leaderboard } = useApi(
@@ -400,7 +424,6 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
             />
             Media only
           </label>
-          {userFilter === '' && (
           <label style={{
             display: 'flex',
             alignItems: 'center',
@@ -416,7 +439,6 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
             />
             Funny bias
           </label>
-          )}
           {userFilter && (
             <div style={{
               background: '#eef2ff',
@@ -457,7 +479,7 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
               Media only
             </div>
           )}
-          {userFilter === '' && funnyBias && (
+          {funnyBias && (
             <div style={{
               background: '#f3e5f5',
               color: '#5e35b1',
@@ -563,18 +585,17 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
                       alignItems: 'center',
                       gap: '0.5rem',
                       padding: '0.4rem 0.8rem',
-                      background: message.total_points >= 0 ? '#e8f5e9' : '#ffebee',
+                      background: '#eef2ff',
                       borderRadius: '20px'
                     }}>
-                      <span style={{ fontSize: '1.2rem' }}>
-                        {message.total_points >= 0 ? '✨' : '💔'}
+                      <span style={{ fontSize: '0.95rem', fontWeight: '600', color: '#3f51b5' }}>
+                        ID {message.message_id}
                       </span>
-                      <span style={{
-                        fontWeight: '600',
-                        color: message.total_points >= 0 ? '#2e7d32' : '#c62828'
-                      }}>
-                        {message.total_points >= 0 ? '+' : ''}{message.total_points} points
-                      </span>
+                      {formatMessageTimestamp(message.message_id) && (
+                        <span style={{ fontSize: '0.9rem', color: '#5c6bc0' }}>
+                          ({formatMessageTimestamp(message.message_id)})
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

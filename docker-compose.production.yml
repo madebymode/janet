@@ -1,0 +1,156 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:17-alpine
+    container_name: janet-postgres
+    environment:
+      POSTGRES_DB: janet
+      POSTGRES_USER: janet
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/migration.sql:/docker-entrypoint-initdb.d/migration.sql
+    networks:
+      - janet-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U janet -d janet"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Dedicated Slack Bot Service
+  janet-bot:
+    image: troyxmccall/janet:bot
+    container_name: janet-bot
+    environment:
+      # Database
+      JANET_DATABASE_DRIVER: postgres
+      JANET_DATABASE_URL: postgres://janet:password@postgres:5432/janet?sslmode=disable
+
+      # Slack Configuration (set these in .env file)
+      JANET_SLACK_TOKEN: ${JANET_SLACK_TOKEN}
+      JANET_SLACK_SOCKET_TOKEN: ${JANET_SLACK_SOCKET_TOKEN}
+      JANET_GOOD_PLACE_JUDGE_BOT_ID: ${JANET_GOOD_PLACE_JUDGE_BOT_ID}
+
+      # Bot Behavior
+      JANET_MAX_POINTS: 5
+      JANET_LEADERBOARD_LIMIT: 10
+      JANET_REPLY_TYPE: message
+      JANET_DEBUG: true
+      JANET_SELF_KARMA: false
+      JANET_MOTIVATE: true
+      JANET_REACTJI_ENABLED: true
+
+      # Bot Personalities
+      JANET_GOOD_USERNAME: "Good Janet"
+      JANET_GOOD_ICON_URL: ""
+      JANET_BAD_USERNAME: "Bad Janet"
+      JANET_BAD_ICON_URL: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - janet-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "janet-bot"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Web UI Service (without bot functionality)
+  janet-init:
+    image: busybox:1.36
+    container_name: janet-init
+    command: ["/bin/sh", "-c", "mkdir -p /var/lib/janet/attachments && chown -R 1001:1001 /var/lib/janet/attachments"]
+    volumes:
+      - janet_attachments:/var/lib/janet/attachments
+    restart: "no"
+
+  janet-web:
+    image: troyxmccall/janet:web
+    container_name: janet-web
+    environment:
+      # Database
+      JANET_DATABASE_DRIVER: postgres
+      JANET_DATABASE_URL: postgres://janet:password@postgres:5432/janet?sslmode=disable
+
+      # Web Configuration
+      JANET_WEB_LISTEN_ADDR: 0.0.0.0:8080
+      JANET_ATTACHMENTS_DIR: /var/lib/janet/attachments
+
+      # Disable bot functionality in web service
+      JANET_BOT_ENABLED: "false"
+
+      # Slack API access needed for backfill operations and admin features
+      JANET_SLACK_TOKEN: ${JANET_SLACK_TOKEN}
+      JANET_SLACK_SOCKET_TOKEN: ${JANET_SLACK_SOCKET_TOKEN}
+      JANET_WEB_TOKEN: ${JANET_WEB_TOKEN}
+      JANET_GOOD_PLACE_JUDGE_BOT_ID: ${JANET_GOOD_PLACE_JUDGE_BOT_ID}
+    volumes:
+      - janet_attachments:/var/lib/janet/attachments
+    depends_on:
+      janet-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    networks:
+      - janet-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/api/stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.13.0
+    container_name: janet-oauth2-proxy
+    command:
+      - --provider=google
+      - --http-address=0.0.0.0:4180
+      - --upstream=http://janet-web:8080
+      - --redirect-url=${OAUTH2_PROXY_REDIRECT_URL:-https://janet.madebymode.com/oauth2/callback}
+      - --email-domain=${OAUTH2_PROXY_EMAIL_DOMAINS:-madebymode.com}
+      - --cookie-secure=${OAUTH2_PROXY_COOKIE_SECURE:-true}
+      - --cookie-httponly=${OAUTH2_PROXY_COOKIE_HTTPONLY:-true}
+      - --cookie-samesite=${OAUTH2_PROXY_COOKIE_SAMESITE:-lax}
+      - --custom-sign-in-logo=/oauth/janet.jpeg
+      - --custom-templates-dir=/oauth/templates
+      - --banner=${OAUTH2_PROXY_BANNER:-}
+      - --footer=${OAUTH2_PROXY_FOOTER:-}
+      - --display-htpasswd-form=${OAUTH2_PROXY_DISPLAY_HTPASSWD_FORM:-false}
+      - --show-debug-on-error=${OAUTH2_PROXY_SHOW_DEBUG_ON_ERROR:-false}
+    environment:
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
+      OAUTH2_PROXY_REDIRECT_URL: ${OAUTH2_PROXY_REDIRECT_URL}
+      OAUTH2_PROXY_EMAIL_DOMAINS: ${OAUTH2_PROXY_EMAIL_DOMAINS}
+      OAUTH2_PROXY_COOKIE_SECURE: ${OAUTH2_PROXY_COOKIE_SECURE}
+      OAUTH2_PROXY_COOKIE_HTTPONLY: ${OAUTH2_PROXY_COOKIE_HTTPONLY}
+      OAUTH2_PROXY_COOKIE_SAMESITE: ${OAUTH2_PROXY_COOKIE_SAMESITE}
+      OAUTH2_PROXY_BANNER: ${OAUTH2_PROXY_BANNER}
+      OAUTH2_PROXY_FOOTER: ${OAUTH2_PROXY_FOOTER}
+      OAUTH2_PROXY_DISPLAY_HTPASSWD_FORM: ${OAUTH2_PROXY_DISPLAY_HTPASSWD_FORM}
+      OAUTH2_PROXY_SHOW_DEBUG_ON_ERROR: ${OAUTH2_PROXY_SHOW_DEBUG_ON_ERROR}
+    volumes:
+      - ./oauth:/oauth:ro
+    ports:
+      - "8080:4180"
+    depends_on:
+      janet-web:
+        condition: service_healthy
+    networks:
+      - janet-network
+    restart: unless-stopped
+
+networks:
+  janet-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  janet_attachments:

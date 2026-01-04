@@ -95,19 +95,35 @@ func (s *Server) staticFileHandler() http.Handler {
 
 // attachmentsFileHandler serves cached Slack attachments from disk
 func (s *Server) attachmentsFileHandler() http.Handler {
-	root := http.Dir(s.config.AttachmentsDir)
-	fileServer := http.FileServer(root)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/attachments/")
-		if path == "" || path == "/" {
+		relPath := strings.TrimPrefix(r.URL.Path, "/attachments/")
+		if relPath == "" || relPath == "/" {
 			http.NotFound(w, r)
 			return
 		}
-		if _, err := os.Stat(filepath.Join(s.config.AttachmentsDir, path)); err != nil {
+		cleanPath := filepath.Clean(string(filepath.Separator) + relPath)
+		cleanPath = strings.TrimPrefix(cleanPath, string(filepath.Separator))
+		if cleanPath == "" || cleanPath == "." {
 			http.NotFound(w, r)
 			return
 		}
-		http.StripPrefix("/attachments/", fileServer).ServeHTTP(w, r)
+
+		fullPath := filepath.Join(s.config.AttachmentsDir, cleanPath)
+		file, err := os.Open(fullPath)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer file.Close()
+
+		info, err := file.Stat()
+		if err != nil || info.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		http.ServeContent(w, r, info.Name(), info.ModTime(), file)
 	})
 }
 

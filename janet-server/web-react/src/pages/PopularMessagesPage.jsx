@@ -2,11 +2,12 @@ import React from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 
-function LazyMedia({ as, src, mime, alt, className, style }) {
-  const [isVisible, setIsVisible] = React.useState(false)
+function LazyMedia({ as, src, mime, alt, className, style, priority = false, rootMargin = '600px 0px' }) {
+  const [isVisible, setIsVisible] = React.useState(priority)
   const ref = React.useRef(null)
 
   React.useEffect(() => {
+    if (priority) return undefined
     const node = ref.current
     if (!node) return undefined
 
@@ -17,12 +18,12 @@ function LazyMedia({ as, src, mime, alt, className, style }) {
           observer.disconnect()
         }
       },
-      { rootMargin: '200px 0px' }
+      { rootMargin }
     )
 
     observer.observe(node)
     return () => observer.disconnect()
-  }, [])
+  }, [priority, rootMargin])
 
   if (as === 'img') {
     return (
@@ -32,7 +33,9 @@ function LazyMedia({ as, src, mime, alt, className, style }) {
         alt={alt}
         className={className}
         style={style}
-        loading="lazy"
+        loading={priority ? 'eager' : 'lazy'}
+        decoding="async"
+        fetchpriority={priority ? 'high' : 'auto'}
       />
     )
   }
@@ -46,6 +49,7 @@ function LazyMedia({ as, src, mime, alt, className, style }) {
         src={isVisible ? src : undefined}
         className={className}
         style={style}
+        playsInline
       />
     )
   }
@@ -333,7 +337,10 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
               }}
             >
               <option value="">All users</option>
-              {leaderboard?.users?.map(user => (
+              {leaderboard?.users
+                ?.slice()
+                .sort((a, b) => a.username.localeCompare(b.username))
+                .map(user => (
                 <option key={user.username} value={user.username}>
                   @{user.username} ({(user.total_points || 0).toLocaleString()} points)
                 </option>
@@ -429,8 +436,16 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
         display: 'grid',
         gap: '1rem'
       }}>
-        {list.map((message, index) => (
-          <div
+        {(() => {
+          let eagerMediaCount = 0
+          return list.map((message, index) => {
+            const hasMedia = Boolean(message.image_url || message.attachment_url)
+            const eagerLoad = hasMedia && eagerMediaCount < 2
+            if (eagerLoad) {
+              eagerMediaCount += 1
+            }
+            return (
+              <div
             key={`${message.channel_id}-${message.message_id}`}
             style={{
               background: 'white',
@@ -594,6 +609,7 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
                       as="img"
                       src={message.image_url}
                       alt="Message attachment"
+                      priority={eagerLoad}
                       style={{
                         width: '100%',
                         maxHeight: '360px',
@@ -618,6 +634,7 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
                         as="video"
                         src={message.attachment_url}
                         mime={message.attachment_mime}
+                        priority={eagerLoad}
                         style={{
                           width: '100%',
                           maxHeight: '360px',
@@ -630,6 +647,7 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
                         as="audio"
                         src={message.attachment_url}
                         mime={message.attachment_mime}
+                        priority={eagerLoad}
                         style={{ width: '100%' }}
                       />
                     ) : (
@@ -661,7 +679,9 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
               </div>
             </div>
           </div>
-        ))}
+            )
+          })
+        })()}
       </div>
 
       <div style={{ marginTop: '1.5rem' }}>

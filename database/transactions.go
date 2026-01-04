@@ -497,6 +497,47 @@ func (ts *TransactionService) GetPopularMessagesSince(since time.Time) ([]*Popul
 	return messages, nil
 }
 
+func (ts *TransactionService) GetPopularMessageCount(year int, username string, minReactions int) (int, error) {
+	query := `
+		WITH message_reactions AS (
+			SELECT
+				message_id,
+				COUNT(*) as total_reactions
+			FROM karma_transactions
+			WHERE transaction_type = 'reactji'
+				AND message_id IS NOT NULL
+				AND emoji_name != 'bangbang'
+	`
+
+	args := []interface{}{}
+	if year > 0 {
+		query += " AND year = $1"
+		args = append(args, year)
+	}
+	if username != "" {
+		query += " AND to_user = $" + strconv.Itoa(len(args)+1)
+		args = append(args, username)
+	}
+
+	query += `
+			GROUP BY message_id
+		)
+		SELECT COUNT(*)
+		FROM message_reactions
+	`
+
+	if minReactions > 0 {
+		query += " WHERE total_reactions >= $" + strconv.Itoa(len(args)+1)
+		args = append(args, minReactions)
+	}
+
+	var count int
+	if err := ts.db.SQL.QueryRow(query, args...).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // UpdateChannelIDForMessage updates the channel_id for all transactions with a given message_id
 // This is useful for caching channel lookups from the Slack API
 func (ts *TransactionService) UpdateChannelIDForMessage(messageID, channelID string) error {

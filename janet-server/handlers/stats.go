@@ -687,13 +687,21 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 		return entries[i].reactionCount > entries[j].reactionCount
 	})
 	total := len(entries)
+	if !mediaOnly {
+		if dbTotal, err := h.db.GetPopularMessageCount(year, filterUser, minReactions); err == nil {
+			total = dbTotal
+		} else {
+			h.logger.Err(err).Error("failed to get popular message count")
+		}
+	}
+	available := len(entries)
 	start := offset
-	if start > total {
-		start = total
+	if start > available {
+		start = available
 	}
 	end := start + limit
-	if end > total {
-		end = total
+	if end > available {
+		end = available
 	}
 	sliced := entries[start:end]
 

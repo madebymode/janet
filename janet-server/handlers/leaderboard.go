@@ -47,8 +47,16 @@ func (h *Handler) HandleAPILeaderboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Only keep users who have given points (sanity check for legit usernames).
+	filteredLeaderboard := make([]*database.UserSummary, 0, len(leaderboard))
+	for _, user := range leaderboard {
+		if user.TransactionsGiven > 0 {
+			filteredLeaderboard = append(filteredLeaderboard, user)
+		}
+	}
+
 	// Enrich user data with Slack information
-	enrichedLeaderboard := h.slack.EnrichUsersWithSlackInfo(leaderboard)
+	enrichedLeaderboard := h.slack.EnrichUsersWithSlackInfo(filteredLeaderboard)
 
 	// Filter out bots and deleted users by default (unless show_all=true)
 	if r.URL.Query().Get("show_all") != "true" {

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aybabtme/log"
 	"github.com/slack-go/slack"
 	"github.com/troyxmccall/janet"
 	"github.com/troyxmccall/janet/database"
@@ -29,12 +30,17 @@ type Service struct {
 	attachmentsDir string
 	attachmentsURL string
 	slackToken     string
+	logger         *log.Log
 }
 
 var ignoredPlusRegex = regexp.MustCompile(`\+{4,}`)
 
 // NewService creates a new Slack service
 func NewService(bot *janet.Bot, opts ServiceOptions) *Service {
+	logger := opts.Logger
+	if logger == nil && bot != nil && bot.Config != nil {
+		logger = bot.Config.Log
+	}
 	return &Service{
 		bot:            bot,
 		slackClient:    nil,
@@ -42,6 +48,7 @@ func NewService(bot *janet.Bot, opts ServiceOptions) *Service {
 		attachmentsDir: opts.AttachmentsDir,
 		attachmentsURL: strings.TrimRight(opts.AttachmentsURL, "/"),
 		slackToken:     opts.SlackToken,
+		logger:         logger,
 	}
 }
 
@@ -54,6 +61,7 @@ func NewWebService(slackClient *slack.Client, opts ServiceOptions) *Service {
 		attachmentsDir: opts.AttachmentsDir,
 		attachmentsURL: strings.TrimRight(opts.AttachmentsURL, "/"),
 		slackToken:     opts.SlackToken,
+		logger:         opts.Logger,
 	}
 }
 
@@ -62,6 +70,7 @@ type ServiceOptions struct {
 	AttachmentsDir string
 	AttachmentsURL string
 	SlackToken     string
+	Logger         *log.Log
 }
 
 type messageCacheEntry struct {
@@ -160,7 +169,11 @@ func (s *Service) GetMessagePermalink(channelID, messageID string) (string, erro
 			return permalink, nil
 		}
 		if rateLimitErr, ok := err.(*slack.RateLimitedError); ok {
-			time.Sleep(rateLimitErr.RetryAfter + (1 * time.Second))
+			waitDuration := rateLimitErr.RetryAfter + (1 * time.Second)
+			if s.logger != nil {
+				s.logger.KV("operation", "get_permalink").KV("channel_id", channelID).KV("message_id", messageID).KV("retry_after", waitDuration.String()).Info("popular_queue waiting_slack")
+			}
+			time.Sleep(waitDuration)
 			lastErr = err
 			continue
 		}
@@ -197,7 +210,11 @@ func (s *Service) GetMessageText(channelID, messageID string) (string, error) {
 			break
 		}
 		if rateLimitErr, ok := err.(*slack.RateLimitedError); ok {
-			time.Sleep(rateLimitErr.RetryAfter + (1 * time.Second))
+			waitDuration := rateLimitErr.RetryAfter + (1 * time.Second)
+			if s.logger != nil {
+				s.logger.KV("operation", "get_message_text").KV("channel_id", channelID).KV("message_id", messageID).KV("retry_after", waitDuration.String()).Info("popular_queue waiting_slack")
+			}
+			time.Sleep(waitDuration)
 			continue
 		}
 		return "", fmt.Errorf("failed to get conversation history: %w", err)
@@ -310,7 +327,11 @@ func (s *Service) getMessage(channelID, messageID string) (slack.Message, error)
 			break
 		}
 		if rateLimitErr, ok := err.(*slack.RateLimitedError); ok {
-			time.Sleep(rateLimitErr.RetryAfter + (1 * time.Second))
+			waitDuration := rateLimitErr.RetryAfter + (1 * time.Second)
+			if s.logger != nil {
+				s.logger.KV("operation", "get_message").KV("channel_id", channelID).KV("message_id", messageID).KV("retry_after", waitDuration.String()).Info("popular_queue waiting_slack")
+			}
+			time.Sleep(waitDuration)
 			continue
 		}
 		return slack.Message{}, fmt.Errorf("failed to get conversation history: %w", err)
@@ -344,7 +365,11 @@ func (s *Service) getUserInfoWithRetry(userID string) (*slack.User, error) {
 			return user, nil
 		}
 		if rateLimitErr, ok := err.(*slack.RateLimitedError); ok {
-			time.Sleep(rateLimitErr.RetryAfter + (1 * time.Second))
+			waitDuration := rateLimitErr.RetryAfter + (1 * time.Second)
+			if s.logger != nil {
+				s.logger.KV("operation", "get_user_info").KV("user_id", userID).KV("retry_after", waitDuration.String()).Info("popular_queue waiting_slack")
+			}
+			time.Sleep(waitDuration)
 			lastErr = err
 			continue
 		}
@@ -610,6 +635,9 @@ func (s *Service) FindChannelByMessageID(messageID string) (string, error) {
 				if rateLimitErr, ok := err.(*slack.RateLimitedError); ok {
 					// Wait for the retry after duration plus buffer
 					waitDuration := rateLimitErr.RetryAfter + (1 * time.Second)
+					if s.logger != nil {
+						s.logger.KV("operation", "list_channels").KV("retry_after", waitDuration.String()).Info("popular_queue waiting_slack")
+					}
 					time.Sleep(waitDuration)
 					// Retry this page (don't advance cursor)
 					continue
@@ -656,7 +684,11 @@ func (s *Service) FindChannelByMessageID(messageID string) (string, error) {
 			// Check if it's a rate limit error
 			if rateLimitErr, ok := err.(*slack.RateLimitedError); ok {
 				// Wait for the retry after duration plus a small buffer
-				time.Sleep(rateLimitErr.RetryAfter + (1 * time.Second))
+				waitDuration := rateLimitErr.RetryAfter + (1 * time.Second)
+				if s.logger != nil {
+					s.logger.KV("operation", "get_conversation_history").KV("channel_id", channel.ID).KV("message_id", messageID).KV("retry_after", waitDuration.String()).Info("popular_queue waiting_slack")
+				}
+				time.Sleep(waitDuration)
 				// Retry this channel
 				i--
 				continue
@@ -710,7 +742,11 @@ func (s *Service) FindChannelByMessageAuthorAndTimestamp(authorUsername, message
 		})
 		if err != nil {
 			if rateLimitErr, ok := err.(*slack.RateLimitedError); ok {
-				time.Sleep(rateLimitErr.RetryAfter + (1 * time.Second))
+				waitDuration := rateLimitErr.RetryAfter + (1 * time.Second)
+				if s.logger != nil {
+					s.logger.KV("operation", "search_messages").KV("author", authorUsername).KV("retry_after", waitDuration.String()).Info("popular_queue waiting_slack")
+				}
+				time.Sleep(waitDuration)
 				lastErr = err
 				continue
 			}

@@ -446,6 +446,57 @@ func (ts *TransactionService) getPopularMessages(limit int, year int, username s
 	return messages, nil
 }
 
+func (ts *TransactionService) GetPopularMessagesSince(since time.Time) ([]*PopularMessage, error) {
+	query := `
+		WITH message_reactions AS (
+			SELECT
+				message_id,
+				MAX(channel_id) FILTER (WHERE channel_id IS NOT NULL AND channel_id != '') as channel_id,
+				COUNT(*) as total_reactions,
+				SUM(CASE WHEN emoji_name = 'joy' THEN 1 ELSE 0 END) as joy_count,
+				SUM(points) as total_points
+			FROM karma_transactions
+			WHERE transaction_type = 'reactji'
+				AND message_id IS NOT NULL
+				AND emoji_name != 'bangbang'
+				AND timestamp >= $1
+	`
+
+	args := []interface{}{since}
+
+	query += `
+			GROUP BY message_id
+		)
+		SELECT
+			channel_id,
+			message_id,
+			total_reactions as reaction_count,
+			total_points
+		FROM message_reactions
+		ORDER BY
+			joy_count DESC,
+			total_reactions DESC
+	`
+
+	rows, err := ts.db.SQL.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []*PopularMessage
+	for rows.Next() {
+		msg := &PopularMessage{}
+		err := rows.Scan(&msg.ChannelID, &msg.MessageID, &msg.ReactionCount, &msg.TotalPoints)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, msg)
+	}
+
+	return messages, nil
+}
+
 // UpdateChannelIDForMessage updates the channel_id for all transactions with a given message_id
 // This is useful for caching channel lookups from the Slack API
 func (ts *TransactionService) UpdateChannelIDForMessage(messageID, channelID string) error {
@@ -533,6 +584,7 @@ func (ts *TransactionService) GetPopularMessageIDsNeedingBackfill(limit int) ([]
 		FROM popular_message_cache
 		WHERE (is_reply IS NULL OR is_reply = false)
 		  AND (is_ignored IS NULL OR is_ignored = false)
+		  AND (details_fetched IS NULL OR details_fetched = false)
 		  AND (
 			channel_id IS NULL OR channel_id = '' OR
 			message_text IS NULL OR
@@ -584,7 +636,7 @@ func (ts *TransactionService) GetChannelIDForMessage(messageID string) (*string,
 // GetPopularMessageDetails returns cached Slack metadata for a message_id.
 func (ts *TransactionService) GetPopularMessageDetails(messageID string) (*PopularMessageDetails, error) {
 	query := `
-		SELECT channel_id, message_text, permalink, author_id, author_name, author_avatar, image_url, attachment_url, attachment_mime, slack_reaction_count, is_reply, is_ignored
+		SELECT channel_id, message_text, permalink, author_id, author_name, author_avatar, image_url, attachment_url, attachment_mime, slack_reaction_count, is_reply, is_ignored, details_fetched
 		FROM popular_message_cache
 		WHERE message_id = $1
 	`
@@ -603,6 +655,7 @@ func (ts *TransactionService) GetPopularMessageDetails(messageID string) (*Popul
 		&details.ReactionCount,
 		&details.IsReply,
 		&details.IsIgnored,
+		&details.DetailsFetched,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -615,11 +668,11 @@ func (ts *TransactionService) GetPopularMessageDetails(messageID string) (*Popul
 }
 
 // UpsertPopularMessageDetails stores cached Slack metadata for a message_id.
-func (ts *TransactionService) UpsertPopularMessageDetails(messageID string, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, attachmentURL, attachmentMime *string, reactionCount *int, isReply, isIgnored *bool) error {
+func (ts *TransactionService) UpsertPopularMessageDetails(messageID string, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, attachmentURL, attachmentMime *string, reactionCount *int, isReply, isIgnored, detailsFetched *bool) error {
 	query := `
 		INSERT INTO popular_message_cache
-			(message_id, channel_id, message_text, permalink, author_id, author_name, author_avatar, image_url, attachment_url, attachment_mime, slack_reaction_count, is_reply, is_ignored, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+			(message_id, channel_id, message_text, permalink, author_id, author_name, author_avatar, image_url, attachment_url, attachment_mime, slack_reaction_count, is_reply, is_ignored, details_fetched, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
 		ON CONFLICT (message_id) DO UPDATE SET
 			channel_id = COALESCE(EXCLUDED.channel_id, popular_message_cache.channel_id),
 			message_text = COALESCE(EXCLUDED.message_text, popular_message_cache.message_text),
@@ -633,9 +686,10 @@ func (ts *TransactionService) UpsertPopularMessageDetails(messageID string, chan
 			slack_reaction_count = COALESCE(EXCLUDED.slack_reaction_count, popular_message_cache.slack_reaction_count),
 			is_reply = COALESCE(EXCLUDED.is_reply, popular_message_cache.is_reply),
 			is_ignored = COALESCE(EXCLUDED.is_ignored, popular_message_cache.is_ignored),
+			details_fetched = COALESCE(EXCLUDED.details_fetched, popular_message_cache.details_fetched),
 			updated_at = NOW()
 	`
 
-	_, err := ts.db.SQL.Exec(query, messageID, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, attachmentURL, attachmentMime, reactionCount, isReply, isIgnored)
+	_, err := ts.db.SQL.Exec(query, messageID, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, attachmentURL, attachmentMime, reactionCount, isReply, isIgnored, detailsFetched)
 	return err
 }

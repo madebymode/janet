@@ -3,11 +3,20 @@ package handlers
 import "time"
 
 type popularBackfillJob struct {
-	messageID string
-	channelID string
+	messageID    string
+	channelID    string
+	forceRefresh bool
 }
 
 func (h *Handler) enqueuePopularMessageBackfill(messageID, channelID string) {
+	h.enqueuePopularMessageJob(messageID, channelID, false, false)
+}
+
+func (h *Handler) enqueuePopularMessageRefresh(messageID, channelID string) {
+	h.enqueuePopularMessageJob(messageID, channelID, true, true)
+}
+
+func (h *Handler) enqueuePopularMessageJob(messageID, channelID string, forceRefresh, waitForSpace bool) {
 	if messageID == "" || h.slack == nil {
 		return
 	}
@@ -20,13 +29,28 @@ func (h *Handler) enqueuePopularMessageBackfill(messageID, channelID string) {
 	h.popularBackfillSeen[messageID] = struct{}{}
 	h.popularBackfillMu.Unlock()
 
-	select {
-	case h.popularBackfillQueue <- popularBackfillJob{messageID: messageID, channelID: channelID}:
-	default:
-		h.popularBackfillMu.Lock()
-		delete(h.popularBackfillSeen, messageID)
-		h.popularBackfillMu.Unlock()
-		h.notePopularBackfillDrop()
+	h.popularBackfillOrderMu.Lock()
+	for {
+		select {
+		case h.popularBackfillQueue <- popularBackfillJob{messageID: messageID, channelID: channelID, forceRefresh: forceRefresh}:
+			h.popularBackfillOrder++
+			h.popularBackfillPositions[messageID] = h.popularBackfillOrder
+			h.popularBackfillOrderMu.Unlock()
+			h.notePopularQueueStatus()
+			return
+		default:
+			if !waitForSpace {
+				h.popularBackfillOrderMu.Unlock()
+				h.popularBackfillMu.Lock()
+				delete(h.popularBackfillSeen, messageID)
+				h.popularBackfillMu.Unlock()
+				h.notePopularBackfillDrop()
+				return
+			}
+		}
+		h.popularBackfillOrderMu.Unlock()
+		time.Sleep(1 * time.Second)
+		h.popularBackfillOrderMu.Lock()
 	}
 }
 
@@ -56,6 +80,18 @@ func (h *Handler) notePopularBackfillFailure(reason string) {
 	h.popularFailMu.Unlock()
 }
 
+func (h *Handler) notePopularQueueStatus() {
+	h.popularQueueLogMu.Lock()
+	now := time.Now()
+	if now.Sub(h.popularQueueLastLog) < 30*time.Second {
+		h.popularQueueLogMu.Unlock()
+		return
+	}
+	h.popularQueueLastLog = now
+	h.popularQueueLogMu.Unlock()
+	h.logger.KV("queue_size", h.popularBackfillQueueSize()).KV("queue_processed", h.popularBackfillProcessed).Info("popular_queue status")
+}
+
 func (h *Handler) startPopularMessageBackfillWorker() {
 	if h.slack == nil {
 		return
@@ -69,6 +105,21 @@ func (h *Handler) startPopularMessageBackfillWorker() {
 }
 
 func (h *Handler) processPopularMessageBackfill(job popularBackfillJob) {
+	queuePosition := 0
+	h.popularBackfillOrderMu.Lock()
+	if _, ok := h.popularBackfillPositions[job.messageID]; ok {
+		order := h.popularBackfillPositions[job.messageID]
+		position := int(order - h.popularBackfillProcessed)
+		if position > 0 {
+			queuePosition = position
+		}
+		delete(h.popularBackfillPositions, job.messageID)
+	}
+	h.popularBackfillProcessed++
+	h.popularBackfillOrderMu.Unlock()
+	h.notePopularQueueStatus()
+	h.logger.KV("message_id", job.messageID).KV("queue_size", h.popularBackfillQueueSize()).KV("queue_position", queuePosition).Info("popular_queue job_start")
+
 	defer func() {
 		h.popularBackfillMu.Lock()
 		delete(h.popularBackfillSeen, job.messageID)
@@ -79,13 +130,20 @@ func (h *Handler) processPopularMessageBackfill(job popularBackfillJob) {
 		return
 	}
 
-	if cached, err := h.db.GetPopularMessageDetails(job.messageID); err == nil && cached != nil {
-		hasText := cached.Text != nil && *cached.Text != ""
-		hasPermalink := cached.Permalink != nil && *cached.Permalink != ""
-		hasAuthor := (cached.AuthorName != nil && *cached.AuthorName != "") || (cached.AuthorAvatar != nil && *cached.AuthorAvatar != "")
-		imageKnown := cached.ImageURL != nil
-		if hasText && hasPermalink && hasAuthor && imageKnown {
-			return
+	if !job.forceRefresh {
+		if cached, err := h.db.GetPopularMessageDetails(job.messageID); err == nil && cached != nil {
+			hasText := cached.Text != nil && *cached.Text != ""
+			hasPermalink := cached.Permalink != nil && *cached.Permalink != ""
+			hasAuthor := (cached.AuthorName != nil && *cached.AuthorName != "") || (cached.AuthorAvatar != nil && *cached.AuthorAvatar != "")
+			imageKnown := cached.ImageURL != nil
+			detailsFetchedKnown := cached.DetailsFetched != nil
+			detailsFetched := detailsFetchedKnown && *cached.DetailsFetched
+			if detailsFetched {
+				return
+			}
+			if !detailsFetchedKnown && hasText && hasPermalink && hasAuthor && imageKnown {
+				return
+			}
 		}
 	}
 
@@ -185,7 +243,8 @@ func (h *Handler) processPopularMessageBackfill(job popularBackfillJob) {
 			isIgnored = &isIgnoredVal
 		}
 	}
-	if err := h.db.UpsertPopularMessageDetails(job.messageID, &channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, attachmentURL, attachmentMime, reactionCount, isReply, isIgnored); err != nil {
+	detailsFetched := true
+	if err := h.db.UpsertPopularMessageDetails(job.messageID, &channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, attachmentURL, attachmentMime, reactionCount, isReply, isIgnored, &detailsFetched); err != nil {
 		h.logger.Err(err).KV("message_id", job.messageID).Error("failed to cache popular message details")
 	}
 }

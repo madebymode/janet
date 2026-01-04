@@ -539,6 +539,8 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 		imageKnown := false
 		attachmentKnown := false
 		reactionKnown := false
+		detailsFetched := false
+		detailsFetchedKnown := false
 		if cached, err := h.db.GetPopularMessageDetails(msg.MessageID); err == nil && cached != nil {
 			if cached.ChannelID != nil && channelID == "" {
 				channelID = *cached.ChannelID
@@ -575,6 +577,10 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 					msgData["attachment_mime"] = *cached.AttachmentMime
 				}
 			}
+			if cached.ImageURL == nil && cached.AttachmentURL == nil && cached.AttachmentMime == nil {
+				imageKnown = true
+				attachmentKnown = true
+			}
 			if cached.ReactionCount != nil {
 				reactionKnown = true
 				msgData["reaction_count"] = *cached.ReactionCount
@@ -586,6 +592,10 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 			if cached.IsIgnored != nil && *cached.IsIgnored {
 				skippedIgnored++
 				continue
+			}
+			if cached.DetailsFetched != nil {
+				detailsFetchedKnown = true
+				detailsFetched = *cached.DetailsFetched
 			}
 		} else if err != nil {
 			h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to read popular message cache")
@@ -609,7 +619,7 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 			if derivedAuthor, err := h.db.GetMessageAuthorByMessageID(msg.MessageID); err == nil && derivedAuthor != nil {
 				msgData["author_name"] = *derivedAuthor
 				hasAuthor = true
-				if err := h.db.UpsertPopularMessageDetails(msg.MessageID, nil, nil, nil, nil, derivedAuthor, nil, nil, nil, nil, nil, nil, nil); err != nil {
+				if err := h.db.UpsertPopularMessageDetails(msg.MessageID, nil, nil, nil, nil, derivedAuthor, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
 					h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to cache derived author")
 				}
 			} else if err != nil {
@@ -619,16 +629,27 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 
 		if channelID != "" {
 			cachedChannelID := channelID
-			if err := h.db.UpsertPopularMessageDetails(msg.MessageID, &cachedChannelID, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
+			if err := h.db.UpsertPopularMessageDetails(msg.MessageID, &cachedChannelID, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
 				h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to update popular message cache")
 			}
 		}
 
-		missingDetails := !hasText || !hasPermalink || !hasAuthor || !imageKnown || !attachmentKnown || !reactionKnown
+		completeDetails := hasText && hasPermalink && hasAuthor && imageKnown && attachmentKnown && reactionKnown
+		if !detailsFetchedKnown && completeDetails {
+			detailsFetched = true
+			detailsFetchedKnown = true
+			if err := h.db.UpsertPopularMessageDetails(msg.MessageID, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &detailsFetched); err != nil {
+				h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to mark popular message details fetched")
+			}
+		}
+		missingDetails := !detailsFetchedKnown || !detailsFetched
 		if missingDetails {
 			h.enqueuePopularMessageBackfill(msg.MessageID, channelID)
 			enqueuedBackfill++
 			skippedMissing++
+			if position := h.popularBackfillQueuePosition(msg.MessageID); position > 0 {
+				msgData["queue_position"] = position
+			}
 		}
 		msgData["pending_details"] = missingDetails
 		reactionCount := msg.ReactionCount
@@ -681,6 +702,28 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 		response = append(response, entry.data)
 	}
 
+	queuePosition := 0
+	for _, entry := range sliced {
+		pending, _ := entry.data["pending_details"].(bool)
+		if !pending {
+			continue
+		}
+		position, _ := entry.data["queue_position"].(int)
+		if position == 0 {
+			messageID, _ := entry.data["message_id"].(string)
+			if messageID == "" {
+				continue
+			}
+			position = h.popularBackfillQueuePosition(messageID)
+		}
+		if position == 0 {
+			continue
+		}
+		if queuePosition == 0 || position < queuePosition {
+			queuePosition = position
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if includeMeta {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -690,7 +733,7 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 			"offset":  offset,
 			"pending": skippedMissing,
 			"queue_size": h.popularBackfillQueueSize(),
-			"queue_position": h.popularBackfillQueueSize(),
+			"queue_position": queuePosition,
 		})
 	} else {
 		json.NewEncoder(w).Encode(response)

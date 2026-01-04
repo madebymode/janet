@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS popular_message_cache
   slack_reaction_count INTEGER,
   is_reply BOOLEAN DEFAULT FALSE,
   is_ignored BOOLEAN DEFAULT FALSE,
+  details_fetched BOOLEAN DEFAULT FALSE,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -94,6 +95,7 @@ ALTER TABLE IF EXISTS popular_message_cache
   ADD COLUMN IF NOT EXISTS slack_reaction_count INTEGER,
   ADD COLUMN IF NOT EXISTS is_reply BOOLEAN DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS is_ignored BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS details_fetched BOOLEAN DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 CREATE INDEX IF NOT EXISTS idx_popular_message_cache_updated_at ON popular_message_cache(updated_at);

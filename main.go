@@ -398,6 +398,7 @@ func (b *Bot) handleBangBangPoints(ev *slack.ReactionAddedEvent) {
 			b.Config.Log.Err(err).Error("failed to insert bangbang transaction")
 			continue
 		}
+		b.markPopularMessageStale(ev.Item.Timestamp, &ev.Item.Channel)
 
 		// Get updated user points for response
 		user, err := b.Config.DB.GetUserByCurrentYear(toUser)
@@ -589,6 +590,16 @@ func (b *Bot) processKarmaTransaction(fromUser, toUser string, points int, reaso
 	}
 }
 
+func (b *Bot) markPopularMessageStale(messageID string, channelID *string) {
+	if messageID == "" || b.Config == nil || b.Config.DB == nil {
+		return
+	}
+	detailsFetched := false
+	if err := b.Config.DB.UpsertPopularMessageDetails(messageID, channelID, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &detailsFetched); err != nil {
+		b.Config.Log.Err(err).KV("message_id", messageID).Error("failed to mark popular message details stale")
+	}
+}
+
 // at this point there is no difference between ReactionAddedEvent and ReactionRemovedEvent
 func (b *Bot) handleReactionEvent(ev *slack.ReactionAddedEvent, reason string, points int) {
 	// look up usernames
@@ -619,6 +630,7 @@ func (b *Bot) handleReactionEvent(ev *slack.ReactionAddedEvent, reason string, p
 	if b.handleError(err, nil) {
 		return
 	}
+	b.markPopularMessageStale(ev.Item.Timestamp, &ev.Item.Channel)
 }
 
 func (b *Bot) handleMessageEvent(ev *slack.MessageEvent) {

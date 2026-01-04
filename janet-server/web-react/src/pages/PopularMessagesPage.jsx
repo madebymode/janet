@@ -70,6 +70,7 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const page = Math.max(0, parseInt(searchParams.get('page') || '0', 10) || 0)
   const minReactions = Math.max(0, parseInt(searchParams.get('min_reactions') || '0', 10) || 0)
+  const [minReactionsInput, setMinReactionsInput] = React.useState(minReactions > 0 ? String(minReactions) : '')
   const mediaOnly = searchParams.get('media') === '1'
   const userFilter = searchParams.get('user') || ''
   const pageSize = 15
@@ -79,6 +80,10 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
       onUserChange(userFilter)
     }
   }, [userFilter, selectedUser, onUserChange])
+
+  React.useEffect(() => {
+    setMinReactionsInput(minReactions > 0 ? String(minReactions) : '')
+  }, [minReactions])
 
   const updateSearchParams = (updates) => {
     const next = new URLSearchParams(searchParams)
@@ -99,6 +104,11 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
 
   const handleMinReactionsChange = (value) => {
     updateSearchParams({ min_reactions: value > 0 ? value : null, page: 0 })
+  }
+
+  const commitMinReactions = () => {
+    const nextValue = parseInt(minReactionsInput, 10)
+    handleMinReactionsChange(Number.isFinite(nextValue) ? nextValue : 0)
   }
 
   const handleMediaOnlyChange = (value) => {
@@ -272,13 +282,10 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
         }}>
           <span>⏳</span>
           {pendingCount > 0 && (
-            <span>{pendingCount} messages are still fetching details.</span>
+            <span>{pendingCount} messages for this report are still fetching details.</span>
           )}
           {queueSize > 0 && (
             <span>Queue size: {queueSize}.</span>
-          )}
-          {queuePosition > 0 && (
-            <span>Approx position: {queuePosition}.</span>
           )}
           <span>Refresh in a minute for richer results.</span>
         </div>
@@ -337,8 +344,14 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
             <input
               type="number"
               min="0"
-              value={minReactions}
-              onChange={(e) => handleMinReactionsChange(parseInt(e.target.value, 10) || 0)}
+              value={minReactionsInput}
+              onChange={(e) => setMinReactionsInput(e.target.value)}
+              onBlur={commitMinReactions}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  commitMinReactions()
+                }
+              }}
               placeholder="Min reactions"
               style={{
                 width: '100%',
@@ -532,6 +545,20 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
                     {message.author_name && (
                       <span style={{ fontWeight: '600' }}>
                         @{message.author_name}
+                      </span>
+                    )}
+                    {message.pending_details && (
+                      <span style={{
+                        marginLeft: '0.5rem',
+                        padding: '0.2rem 0.6rem',
+                        borderRadius: '12px',
+                        background: '#fff8e1',
+                        border: '1px solid #ffe082',
+                        color: '#8a6d3b',
+                        fontSize: '0.8rem',
+                        fontWeight: '600'
+                      }}>
+                        Details loading{message.queue_position ? ` (queue: ${message.queue_position})` : ''}
                       </span>
                     )}
                   </div>

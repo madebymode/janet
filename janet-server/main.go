@@ -40,6 +40,7 @@ func main() {
 			AttachmentsDir: attachmentsDir,
 			AttachmentsURL: attachmentsURL,
 			SlackToken:     os.Getenv("JANET_SLACK_TOKEN"),
+			Logger:         srv.GetLogger(),
 		})
 		srv.GetLogger().Info("using bot's Slack client")
 	} else {
@@ -56,11 +57,12 @@ func main() {
 				AttachmentsDir: attachmentsDir,
 				AttachmentsURL: attachmentsURL,
 				SlackToken:     webToken,
+				Logger:         srv.GetLogger(),
 			})
 			srv.GetLogger().Info("using standalone Slack client for web mode")
 		} else {
 			// No Slack client available
-			slackService = slack.NewWebService(nil, slack.ServiceOptions{})
+			slackService = slack.NewWebService(nil, slack.ServiceOptions{Logger: srv.GetLogger()})
 			srv.GetLogger().Error("no Slack token available, Slack features disabled")
 		}
 	}

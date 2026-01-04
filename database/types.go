@@ -129,6 +129,7 @@ type PopularMessageDetails struct {
 	ReactionCount *int
 	IsReply   *bool
 	IsIgnored *bool
+	DetailsFetched *bool
 }
 
 // Legacy types for backward compatibility

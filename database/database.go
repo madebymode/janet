@@ -133,6 +133,10 @@ func (db *V2DB) GetPopularMessagesByUser(limit int, year int, username string) (
 	return db.transactionService().GetPopularMessagesByUser(limit, year, username)
 }
 
+func (db *V2DB) GetPopularMessagesSince(since time.Time) ([]*PopularMessage, error) {
+	return db.transactionService().GetPopularMessagesSince(since)
+}
+
 func (db *V2DB) UpdateChannelIDForMessage(messageID, channelID string) error {
 	return db.transactionService().UpdateChannelIDForMessage(messageID, channelID)
 }
@@ -157,8 +161,8 @@ func (db *V2DB) GetPopularMessageDetails(messageID string) (*PopularMessageDetai
 	return db.transactionService().GetPopularMessageDetails(messageID)
 }
 
-func (db *V2DB) UpsertPopularMessageDetails(messageID string, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, attachmentURL, attachmentMime *string, reactionCount *int, isReply, isIgnored *bool) error {
-	return db.transactionService().UpsertPopularMessageDetails(messageID, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, attachmentURL, attachmentMime, reactionCount, isReply, isIgnored)
+func (db *V2DB) UpsertPopularMessageDetails(messageID string, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, attachmentURL, attachmentMime *string, reactionCount *int, isReply, isIgnored, detailsFetched *bool) error {
+	return db.transactionService().UpsertPopularMessageDetails(messageID, channelID, text, permalink, authorID, authorName, authorAvatar, imageURL, attachmentURL, attachmentMime, reactionCount, isReply, isIgnored, detailsFetched)
 }
 
 // UserRepository implementation

@@ -423,6 +423,11 @@ func (s *Service) getMessageAttachment(message slack.Message) (string, string, b
 			continue
 		}
 		hasAttachment := true
+		if file.Mimetype == "image/heic" || file.Mimetype == "image/heif" {
+			if localURL := s.downloadSlackHeicAsJpeg(file); localURL != "" {
+				return localURL, "image/jpeg", hasAttachment
+			}
+		}
 		if localURL := s.downloadSlackFile(file); localURL != "" {
 			return localURL, file.Mimetype, hasAttachment
 		}
@@ -501,6 +506,9 @@ func (s *Service) downloadSlackHeicAsJpeg(file slack.File) string {
 	}
 
 	if err := convertHeicToJpeg(heicPath, jpgPath); err != nil {
+		if s.logger != nil {
+			s.logger.Err(err).KV("heic_path", heicPath).KV("jpg_path", jpgPath).Error("failed to convert heic")
+		}
 		return ""
 	}
 
@@ -508,6 +516,9 @@ func (s *Service) downloadSlackHeicAsJpeg(file slack.File) string {
 }
 
 func convertHeicToJpeg(sourcePath, targetPath string) error {
+	if _, err := exec.LookPath("heif-convert"); err == nil {
+		return exec.Command("heif-convert", sourcePath, targetPath).Run()
+	}
 	if _, err := exec.LookPath("magick"); err == nil {
 		return exec.Command("magick", sourcePath, targetPath).Run()
 	}

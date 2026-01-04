@@ -477,6 +477,7 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	mediaOnly := r.URL.Query().Get("has_media") == "1"
+	funnyBias := r.URL.Query().Get("funny_bias") == "1"
 	includeMeta := r.URL.Query().Get("include_meta") == "1"
 
 	// Fetch more messages than requested since we apply filters and backfill state
@@ -496,9 +497,9 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 	var messages []*database.PopularMessage
 	var err error
 	if filterUser != "" {
-		messages, err = h.db.GetPopularMessagesByUser(fetchLimit, year, filterUser)
+		messages, err = h.db.GetPopularMessagesByUser(fetchLimit, year, filterUser, funnyBias)
 	} else {
-		messages, err = h.db.GetPopularMessages(fetchLimit, year)
+		messages, err = h.db.GetPopularMessages(fetchLimit, year, funnyBias)
 	}
 	if err != nil {
 		h.logger.Err(err).Error("failed to get popular messages")

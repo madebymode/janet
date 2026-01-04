@@ -125,12 +125,12 @@ func (db *V2DB) GetNegativeTransactionsCumulative() (int, error) {
 }
 
 // Popular messages methods
-func (db *V2DB) GetPopularMessages(limit int, year int) ([]*PopularMessage, error) {
-	return db.transactionService().GetPopularMessages(limit, year)
+func (db *V2DB) GetPopularMessages(limit int, year int, funnyBias bool) ([]*PopularMessage, error) {
+	return db.transactionService().GetPopularMessages(limit, year, funnyBias)
 }
 
-func (db *V2DB) GetPopularMessagesByUser(limit int, year int, username string) ([]*PopularMessage, error) {
-	return db.transactionService().GetPopularMessagesByUser(limit, year, username)
+func (db *V2DB) GetPopularMessagesByUser(limit int, year int, username string, funnyBias bool) ([]*PopularMessage, error) {
+	return db.transactionService().GetPopularMessagesByUser(limit, year, username, funnyBias)
 }
 
 func (db *V2DB) GetPopularMessagesSince(since time.Time) ([]*PopularMessage, error) {

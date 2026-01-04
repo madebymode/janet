@@ -376,15 +376,15 @@ func (ts *TransactionService) GetNegativeTransactionsCumulative() (int, error) {
 
 	// GetPopularMessages returns messages with the most reactions
 	// Excludes 'bangbang' reactions and prioritizes messages with 'joy' emoji reactions (funny posts)
-func (ts *TransactionService) GetPopularMessages(limit int, year int) ([]*PopularMessage, error) {
-	return ts.getPopularMessages(limit, year, "")
+func (ts *TransactionService) GetPopularMessages(limit int, year int, funnyBias bool) ([]*PopularMessage, error) {
+	return ts.getPopularMessages(limit, year, "", funnyBias)
 }
 
-func (ts *TransactionService) GetPopularMessagesByUser(limit int, year int, username string) ([]*PopularMessage, error) {
-	return ts.getPopularMessages(limit, year, username)
+func (ts *TransactionService) GetPopularMessagesByUser(limit int, year int, username string, funnyBias bool) ([]*PopularMessage, error) {
+	return ts.getPopularMessages(limit, year, username, funnyBias)
 }
 
-func (ts *TransactionService) getPopularMessages(limit int, year int, username string) ([]*PopularMessage, error) {
+func (ts *TransactionService) getPopularMessages(limit int, year int, username string, funnyBias bool) ([]*PopularMessage, error) {
 	query := `
 		WITH message_reactions AS (
 			SELECT
@@ -420,8 +420,15 @@ func (ts *TransactionService) getPopularMessages(limit int, year int, username s
 			total_points
 		FROM message_reactions
 		ORDER BY
-			-- Prioritize messages with joy emoji
+	`
+
+	if funnyBias {
+		query += `
 			joy_count DESC,
+		`
+	}
+
+	query += `
 			total_reactions DESC
 		LIMIT $` + strconv.Itoa(len(args)+1)
 
@@ -453,7 +460,6 @@ func (ts *TransactionService) GetPopularMessagesSince(since time.Time) ([]*Popul
 				message_id,
 				MAX(channel_id) FILTER (WHERE channel_id IS NOT NULL AND channel_id != '') as channel_id,
 				COUNT(*) as total_reactions,
-				SUM(CASE WHEN emoji_name = 'joy' THEN 1 ELSE 0 END) as joy_count,
 				SUM(points) as total_points
 			FROM karma_transactions
 			WHERE transaction_type = 'reactji'
@@ -474,7 +480,6 @@ func (ts *TransactionService) GetPopularMessagesSince(since time.Time) ([]*Popul
 			total_points
 		FROM message_reactions
 		ORDER BY
-			joy_count DESC,
 			total_reactions DESC
 	`
 

@@ -7,6 +7,12 @@ function LazyMedia({ as, src, mime, alt, className, style, priority = false, roo
   const ref = React.useRef(null)
 
   React.useEffect(() => {
+    if (priority) {
+      setIsVisible(true)
+    }
+  }, [priority, src])
+
+  React.useEffect(() => {
     if (priority) return undefined
     const node = ref.current
     if (!node) return undefined
@@ -77,6 +83,7 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
   const [minReactionsInput, setMinReactionsInput] = React.useState(minReactions > 0 ? String(minReactions) : '')
   const mediaOnly = searchParams.get('media') === '1'
   const userFilter = searchParams.get('user') || ''
+  const funnyBias = userFilter === '' && searchParams.get('hallmark') !== '1'
   const pageSize = 15
 
   React.useEffect(() => {
@@ -90,9 +97,11 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
   }, [minReactions])
 
   const updateSearchParams = (updates) => {
+    const allowZeroKeys = new Set(['hallmark', 'page'])
     const next = new URLSearchParams(searchParams)
     Object.entries(updates).forEach(([key, value]) => {
-      if (value === null || value === '' || value === false || value === 0) {
+      const allowZero = allowZeroKeys.has(key)
+      if (value === null || value === '' || value === false || (!allowZero && value === 0)) {
         next.delete(key)
       } else {
         next.set(key, String(value))
@@ -119,6 +128,10 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
     updateSearchParams({ media: value ? 1 : null, page: 0 })
   }
 
+  const handleFunnyBiasChange = (value) => {
+    updateSearchParams({ hallmark: value ? null : 1, page: 0 })
+  }
+
   const { data: leaderboard } = useApi(
     selectedYear === 0
       ? '/api/leaderboard?limit=100'
@@ -127,9 +140,9 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
 
   const { data: messages, loading, error } = useApi(
     selectedYear !== null
-      ? `/api/stats/popular-messages?limit=${pageSize}&offset=${page * pageSize}&year=${selectedYear === 0 ? '' : selectedYear}&include_meta=1${userFilter ? `&user=${userFilter}` : ''}${minReactions > 0 ? `&min_reactions=${minReactions}` : ''}${mediaOnly ? '&has_media=1' : ''}`
+      ? `/api/stats/popular-messages?limit=${pageSize}&offset=${page * pageSize}&year=${selectedYear === 0 ? '' : selectedYear}&include_meta=1${userFilter ? `&user=${userFilter}` : ''}${minReactions > 0 ? `&min_reactions=${minReactions}` : ''}${mediaOnly ? '&has_media=1' : ''}${funnyBias ? '&funny_bias=1' : ''}`
       : null,
-    [selectedYear, userFilter, page, minReactions, mediaOnly]
+    [selectedYear, userFilter, page, minReactions, mediaOnly, funnyBias]
   )
 
   const list = messages?.items || messages
@@ -387,6 +400,23 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
             />
             Media only
           </label>
+          {userFilter === '' && (
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            fontSize: '0.95rem',
+            color: '#2c3e50',
+            fontWeight: '600'
+          }}>
+            <input
+              type="checkbox"
+              checked={funnyBias}
+              onChange={(e) => handleFunnyBiasChange(e.target.checked)}
+            />
+            Funny bias
+          </label>
+          )}
           {userFilter && (
             <div style={{
               background: '#eef2ff',
@@ -425,6 +455,18 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
               fontWeight: '600'
             }}>
               Media only
+            </div>
+          )}
+          {userFilter === '' && funnyBias && (
+            <div style={{
+              background: '#f3e5f5',
+              color: '#5e35b1',
+              padding: '0.5rem 1rem',
+              borderRadius: '20px',
+              fontSize: '0.875rem',
+              fontWeight: '600'
+            }}>
+              Funny bias
             </div>
           )}
         </div>

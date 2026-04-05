@@ -12,7 +12,7 @@ COPY janet-server/web-react/ .
 RUN npm run build
 
 # Build stage for Go application
-FROM golang:1.24-alpine AS go_builder
+FROM golang:1.25-alpine AS go_builder
 
 # Install build dependencies
 RUN apk add --no-cache build-base ca-certificates

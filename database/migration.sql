@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS karma_transactions
   TEXT,
   message_id
   TEXT,
+  dedupe_key
+  TEXT,
   timestamp
   TIMESTAMPTZ
   NOT
@@ -61,6 +63,11 @@ CREATE INDEX IF NOT EXISTS idx_karma_transactions_timestamp ON karma_transaction
 CREATE INDEX IF NOT EXISTS idx_karma_transactions_emoji ON karma_transactions(emoji_name) WHERE emoji_name IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_karma_transactions_type ON karma_transactions(transaction_type);
 CREATE INDEX IF NOT EXISTS idx_karma_transactions_year ON karma_transactions(year);
+
+ALTER TABLE IF EXISTS karma_transactions
+  ADD COLUMN IF NOT EXISTS dedupe_key TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_karma_transactions_dedupe_key ON karma_transactions(dedupe_key) WHERE dedupe_key IS NOT NULL;
 
 -- Cached popular message details to avoid repeated Slack API calls
 CREATE TABLE IF NOT EXISTS popular_message_cache

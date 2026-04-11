@@ -1,10 +1,14 @@
 package database
 
 import (
+	"crypto/sha1"
 	"database/sql"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -34,6 +38,45 @@ func isValidUsername(username string) bool {
 	return validUsernameRegex.MatchString(username)
 }
 
+func buildTransactionDedupeKey(tx *Transaction) string {
+	emojiName := ""
+	if tx.EmojiName != nil {
+		emojiName = *tx.EmojiName
+	}
+
+	channelID := ""
+	if tx.ChannelID != nil {
+		channelID = *tx.ChannelID
+	}
+
+	messageID := ""
+	if tx.MessageID != nil {
+		messageID = *tx.MessageID
+	}
+
+	channelName := ""
+	if tx.ChannelName != nil {
+		channelName = *tx.ChannelName
+	}
+
+	timestamp := tx.Timestamp.UTC().Format(time.RFC3339Nano)
+	raw := strings.Join([]string{
+		tx.FromUser,
+		tx.ToUser,
+		strconv.Itoa(tx.Points),
+		tx.Reason,
+		tx.TransactionType,
+		emojiName,
+		channelID,
+		channelName,
+		messageID,
+		timestamp,
+	}, "\x1f")
+
+	sum := sha1.Sum([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
 // InsertTransaction inserts a new karma transaction
 func (ts *TransactionService) InsertTransaction(tx *Transaction) error {
 	// Validate usernames to prevent special characters from being stored
@@ -52,6 +95,7 @@ func (ts *TransactionService) InsertTransaction(tx *Transaction) error {
 
 	// Set year from timestamp
 	tx.Year = tx.Timestamp.Year()
+	dedupeKey := buildTransactionDedupeKey(tx)
 
 	// Use a transaction to prevent race conditions during mass imports
 	dbTx, err := ts.db.SQL.Begin()
@@ -62,14 +106,15 @@ func (ts *TransactionService) InsertTransaction(tx *Transaction) error {
 
 	query := `
 		INSERT INTO karma_transactions
-		(from_user, to_user, points, reason, transaction_type, emoji_name, channel_id, channel_name, message_id, timestamp, year)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		(from_user, to_user, points, reason, transaction_type, emoji_name, channel_id, channel_name, message_id, dedupe_key, timestamp, year)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT DO NOTHING
 	`
 
-	_, err = dbTx.Exec(query,
+	result, err := dbTx.Exec(query,
 		tx.FromUser, tx.ToUser, tx.Points, tx.Reason,
 		tx.TransactionType, tx.EmojiName, tx.ChannelID, tx.ChannelName, tx.MessageID,
-		tx.Timestamp, tx.Year,
+		dedupeKey, tx.Timestamp, tx.Year,
 	)
 	if err != nil {
 		return err
@@ -78,6 +123,14 @@ func (ts *TransactionService) InsertTransaction(tx *Transaction) error {
 	// Commit the transaction first
 	if err := dbTx.Commit(); err != nil {
 		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return nil
 	}
 
 	// Update summary tables after successful insert
@@ -102,8 +155,9 @@ func (ts *TransactionService) InsertTransactionsBulk(transactions []*Transaction
 	// Prepare the insert statement once
 	query := `
 		INSERT INTO karma_transactions
-		(from_user, to_user, points, reason, transaction_type, emoji_name, channel_id, channel_name, message_id, timestamp, year)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		(from_user, to_user, points, reason, transaction_type, emoji_name, channel_id, channel_name, message_id, dedupe_key, timestamp, year)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT DO NOTHING
 	`
 	stmt, err := dbTx.Prepare(query)
 	if err != nil {
@@ -112,6 +166,7 @@ func (ts *TransactionService) InsertTransactionsBulk(transactions []*Transaction
 	defer stmt.Close()
 
 	// Process each transaction
+	insertedUsersByYear := make(map[string]map[int]struct{})
 	for _, tx := range transactions {
 		// Validate usernames to prevent special characters from being stored
 		if !isValidUsername(tx.FromUser) || !isValidUsername(tx.ToUser) {
@@ -129,16 +184,34 @@ func (ts *TransactionService) InsertTransactionsBulk(transactions []*Transaction
 
 		// Set year from timestamp
 		tx.Year = tx.Timestamp.Year()
+		dedupeKey := buildTransactionDedupeKey(tx)
 
 		// Execute the insert
-		_, err = stmt.Exec(
+		result, err := stmt.Exec(
 			tx.FromUser, tx.ToUser, tx.Points, tx.Reason,
 			tx.TransactionType, tx.EmojiName, tx.ChannelID, tx.ChannelName, tx.MessageID,
-			tx.Timestamp, tx.Year,
+			dedupeKey, tx.Timestamp, tx.Year,
 		)
 		if err != nil {
 			return err
 		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rowsAffected == 0 {
+			continue
+		}
+
+		if insertedUsersByYear[tx.ToUser] == nil {
+			insertedUsersByYear[tx.ToUser] = make(map[int]struct{})
+		}
+		if insertedUsersByYear[tx.FromUser] == nil {
+			insertedUsersByYear[tx.FromUser] = make(map[int]struct{})
+		}
+		insertedUsersByYear[tx.ToUser][tx.Year] = struct{}{}
+		insertedUsersByYear[tx.FromUser][tx.Year] = struct{}{}
 	}
 
 	// Commit all inserts at once
@@ -148,22 +221,17 @@ func (ts *TransactionService) InsertTransactionsBulk(transactions []*Transaction
 
 	// Update summary tables for all affected users
 	summaryService := NewSummaryService(ts.db)
-	processedUsers := make(map[string]map[int]bool) // user -> year -> processed
-
-	for _, tx := range transactions {
-		if processedUsers[tx.ToUser] == nil {
-			processedUsers[tx.ToUser] = make(map[int]bool)
-		}
-		if processedUsers[tx.FromUser] == nil {
-			processedUsers[tx.FromUser] = make(map[int]bool)
-		}
-
-		if !processedUsers[tx.ToUser][tx.Year] {
-			if err := summaryService.UpdateSummaryTables(tx.ToUser, tx.FromUser, tx.Year); err != nil {
+	processedPairs := make(map[string]struct{})
+	for user, years := range insertedUsersByYear {
+		for year := range years {
+			key := fmt.Sprintf("%s:%d", user, year)
+			if _, seen := processedPairs[key]; seen {
+				continue
+			}
+			if err := summaryService.UpdateSummaryTables(user, user, year); err != nil {
 				return err
 			}
-			processedUsers[tx.ToUser][tx.Year] = true
-			processedUsers[tx.FromUser][tx.Year] = true
+			processedPairs[key] = struct{}{}
 		}
 	}
 

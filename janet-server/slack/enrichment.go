@@ -27,6 +27,8 @@ type Service struct {
 	cacheFetchedAt time.Time
 	messageCache   map[string]messageCacheEntry
 	messageCacheMu sync.RWMutex
+	userCache      map[string]slack.User
+	userCacheMu    sync.RWMutex
 	attachmentsDir string
 	attachmentsURL string
 	slackToken     string
@@ -45,6 +47,7 @@ func NewService(bot *janet.Bot, opts ServiceOptions) *Service {
 		bot:            bot,
 		slackClient:    nil,
 		messageCache:   make(map[string]messageCacheEntry),
+		userCache:      make(map[string]slack.User),
 		attachmentsDir: opts.AttachmentsDir,
 		attachmentsURL: strings.TrimRight(opts.AttachmentsURL, "/"),
 		slackToken:     opts.SlackToken,
@@ -58,6 +61,7 @@ func NewWebService(slackClient *slack.Client, opts ServiceOptions) *Service {
 		bot:            nil,
 		slackClient:    slackClient,
 		messageCache:   make(map[string]messageCacheEntry),
+		userCache:      make(map[string]slack.User),
 		attachmentsDir: opts.AttachmentsDir,
 		attachmentsURL: strings.TrimRight(opts.AttachmentsURL, "/"),
 		slackToken:     opts.SlackToken,
@@ -101,10 +105,6 @@ func (s *Service) setCachedMessageDetails(channelID, messageID string, details *
 
 // EnrichUsersWithSlackInfo enriches user summaries with Slack profile information
 func (s *Service) EnrichUsersWithSlackInfo(users []*database.UserSummary) []*database.UserSummary {
-	if s.bot == nil {
-		return users // Return unchanged if no bot available
-	}
-
 	for _, user := range users {
 		// Try to get Slack user info
 		if slackUser, err := s.getSlackUserByUsername(user.Username); err == nil {
@@ -129,10 +129,6 @@ func (s *Service) EnrichUsersWithSlackInfo(users []*database.UserSummary) []*dat
 
 // getSlackUserByUsername attempts to find a Slack user by their username
 func (s *Service) getSlackUserByUsername(username string) (*slack.User, error) {
-	if s.bot == nil {
-		return nil, fmt.Errorf("bot not available")
-	}
-
 	// Skip obviously corrupted usernames
 	if strings.Contains(username, "@") || strings.Contains(username, "+++++") ||
 	   strings.HasPrefix(username, "*") || strings.HasPrefix(username, "<") ||
@@ -140,8 +136,46 @@ func (s *Service) getSlackUserByUsername(username string) (*slack.User, error) {
 		return nil, fmt.Errorf("corrupted username: %s", username)
 	}
 
-	// Try to get user info directly by username
-	return s.bot.GetSlackUserInfo(username)
+	s.userCacheMu.RLock()
+	if cached, ok := s.userCache[username]; ok {
+		s.userCacheMu.RUnlock()
+		return &cached, nil
+	}
+	s.userCacheMu.RUnlock()
+
+	client := s.slackClient
+	if client == nil && s.bot != nil && s.bot.Config.SlackWebClient != nil {
+		client = s.bot.Config.SlackWebClient
+	}
+	if client == nil {
+		return nil, fmt.Errorf("no slack client available")
+	}
+
+	workspaceUsers, err := client.GetUsers()
+	if err != nil {
+		return nil, err
+	}
+
+	normalized := strings.ToLower(username)
+	s.userCacheMu.Lock()
+	defer s.userCacheMu.Unlock()
+	for _, workspaceUser := range workspaceUsers {
+		s.userCache[workspaceUser.ID] = workspaceUser
+		s.userCache[workspaceUser.Name] = workspaceUser
+		if workspaceUser.Profile.DisplayName != "" {
+			s.userCache[strings.ToLower(workspaceUser.Profile.DisplayName)] = workspaceUser
+		}
+		s.userCache[strings.ToLower(workspaceUser.Name)] = workspaceUser
+	}
+
+	if cached, ok := s.userCache[normalized]; ok {
+		return &cached, nil
+	}
+	if cached, ok := s.userCache[username]; ok {
+		return &cached, nil
+	}
+
+	return nil, fmt.Errorf("user not found: %s", username)
 }
 
 // GetMessagePermalink gets a permalink to a Slack message

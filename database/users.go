@@ -19,40 +19,17 @@ func NewUserService(db *V2DB) *UserService {
 func (us *UserService) GetCurrentLeaderboard(limit int) ([]*UserSummary, error) {
 	query := `
 		SELECT
-		    username,
-		    SUM(points_received) as total_points,
-		    SUM(points_given) as points_given,
-		    SUM(points_received) as points_received,
-		    SUM(transactions_given) as transactions_given,
-		    SUM(transactions_received) as transactions_received,
-		    SUM(emoji_reactions_given) as emoji_reactions_given,
-		    SUM(emoji_reactions_received) as emoji_reactions_received,
-		    MAX(last_activity) as last_activity,
-		    RANK() OVER (ORDER BY SUM(points_received) DESC) as rank
-		FROM (
-		    SELECT
-		        to_user as username,
-		        points as points_received,
-		        0 as points_given,
-		        1 as transactions_received,
-		        0 as transactions_given,
-		        CASE WHEN transaction_type = 'reactji' THEN 1 ELSE 0 END as emoji_reactions_received,
-		        0 as emoji_reactions_given,
-		        timestamp as last_activity
-		    FROM karma_transactions
-		    UNION ALL
-		    SELECT
-		        from_user as username,
-		        0 as points_received,
-		        CASE WHEN points > 0 THEN points ELSE 0 END as points_given,
-		        0 as transactions_received,
-		        1 as transactions_given,
-		        0 as emoji_reactions_received,
-		        CASE WHEN transaction_type = 'reactji' THEN 1 ELSE 0 END as emoji_reactions_given,
-		        timestamp as last_activity
-		    FROM karma_transactions
-		) as combined_transactions
-		GROUP BY username
+			username,
+			total_points,
+			points_given,
+			points_received,
+			transactions_given,
+			transactions_received,
+			emoji_reactions_given,
+			emoji_reactions_received,
+			last_activity,
+			RANK() OVER (ORDER BY total_points DESC) as rank
+		FROM user_summary_current
 		ORDER BY total_points DESC
 		LIMIT $1
 	`
@@ -88,39 +65,17 @@ func (us *UserService) GetCurrentLeaderboard(limit int) ([]*UserSummary, error) 
 func (us *UserService) GetYearlyLeaderboard(year, limit int) ([]*UserSummary, error) {
 	query := `
 		SELECT
-		    username,
-		    SUM(points_received) as total_points,
-		    SUM(points_given) as points_given,
-		    SUM(points_received) as points_received,
-		    SUM(transactions_given) as transactions_given,
-		    SUM(transactions_received) as transactions_received,
-		    SUM(emoji_reactions_given) as emoji_reactions_given,
-		    SUM(emoji_reactions_received) as emoji_reactions_received,
-		    RANK() OVER (ORDER BY SUM(points_received) DESC) as rank
-		FROM (
-		    SELECT
-		        to_user as username,
-		        points as points_received,
-		        0 as points_given,
-		        1 as transactions_received,
-		        0 as transactions_given,
-		        CASE WHEN transaction_type = 'reactji' THEN 1 ELSE 0 END as emoji_reactions_received,
-		        0 as emoji_reactions_given
-		    FROM karma_transactions
-		    WHERE year = $1
-		    UNION ALL
-		    SELECT
-		        from_user as username,
-		        0 as points_received,
-		        CASE WHEN points > 0 THEN points ELSE 0 END as points_given,
-		        0 as transactions_received,
-		        1 as transactions_given,
-		        0 as emoji_reactions_received,
-		        CASE WHEN transaction_type = 'reactji' THEN 1 ELSE 0 END as emoji_reactions_given
-		    FROM karma_transactions
-		    WHERE year = $1
-		) as combined_transactions
-		GROUP BY username
+			username,
+			total_points,
+			points_given,
+			points_received,
+			transactions_given,
+			transactions_received,
+			emoji_reactions_given,
+			emoji_reactions_received,
+			RANK() OVER (ORDER BY total_points DESC) as rank
+		FROM user_summary_yearly
+		WHERE year = $1
 		ORDER BY total_points DESC
 		LIMIT $2
 	`
@@ -152,60 +107,31 @@ func (us *UserService) GetYearlyLeaderboard(year, limit int) ([]*UserSummary, er
 func (us *UserService) GetUser(username string) (*UserSummary, error) {
 	query := `
 		SELECT
-		    username,
-		    SUM(points_received) as total_points,
-		    SUM(points_given) as points_given,
-		    SUM(points_received) as points_received,
-		    SUM(transactions_given) as transactions_given,
-		    SUM(transactions_received) as transactions_received,
-		    SUM(emoji_reactions_given) as emoji_reactions_given,
-		    SUM(emoji_reactions_received) as emoji_reactions_received,
-		    MAX(last_activity) as last_activity,
-		    (SELECT COUNT(*) + 1 FROM (
-		        SELECT
-		            username,
-		            SUM(points_received) as total_points
-		        FROM (
-		            SELECT to_user as username, points as points_received, 0 as points_given FROM karma_transactions
-		            UNION ALL
-		            SELECT from_user as username, 0 as points_received, CASE WHEN points > 0 THEN points ELSE 0 END as points_given FROM karma_transactions
-		        ) as combined_transactions
-		        GROUP BY username
-		    ) as leaderboard_data WHERE total_points > (
-		        SELECT SUM(points_received)
-		        FROM (
-		            SELECT to_user as username, points as points_received, 0 as points_given FROM karma_transactions WHERE to_user = $1
-		            UNION ALL
-		            SELECT from_user as username, 0 as points_received, CASE WHEN points > 0 THEN points ELSE 0 END as points_given FROM karma_transactions WHERE from_user = $1
-		        ) as user_combined_transactions
-		        GROUP BY username
-		    )) as rank
+			username,
+			total_points,
+			points_given,
+			points_received,
+			transactions_given,
+			transactions_received,
+			emoji_reactions_given,
+			emoji_reactions_received,
+			last_activity,
+			rank
 		FROM (
-		    SELECT
-		        to_user as username,
-		        points as points_received,
-		        0 as points_given,
-		        1 as transactions_received,
-		        0 as transactions_given,
-		        CASE WHEN transaction_type = 'reactji' THEN 1 ELSE 0 END as emoji_reactions_received,
-		        0 as emoji_reactions_given,
-		        timestamp as last_activity
-		    FROM karma_transactions
-		    WHERE to_user = $1
-		    UNION ALL
-		    SELECT
-		        from_user as username,
-		        0 as points_received,
-		        CASE WHEN points > 0 THEN points ELSE 0 END as points_given,
-		        0 as transactions_received,
-		        1 as transactions_given,
-		        0 as emoji_reactions_received,
-		        CASE WHEN transaction_type = 'reactji' THEN 1 ELSE 0 END as emoji_reactions_given,
-		        timestamp as last_activity
-		    FROM karma_transactions
-		    WHERE from_user = $1
-		) as combined_transactions
-		GROUP BY username
+			SELECT
+				username,
+				total_points,
+				points_given,
+				points_received,
+				transactions_given,
+				transactions_received,
+				emoji_reactions_given,
+				emoji_reactions_received,
+				last_activity,
+				RANK() OVER (ORDER BY total_points DESC) as rank
+			FROM user_summary_current
+		) ranked_users
+		WHERE username = $1
 	`
 
 	user := &UserSummary{}
@@ -236,57 +162,30 @@ func (us *UserService) GetUser(username string) (*UserSummary, error) {
 func (us *UserService) GetUserByYear(username string, year int) (*UserSummary, error) {
 	query := `
 		SELECT
-		    username,
-		    SUM(points_received) as total_points,
-		    SUM(points_given) as points_given,
-		    SUM(points_received) as points_received,
-		    SUM(transactions_given) as transactions_given,
-		    SUM(transactions_received) as transactions_received,
-		    SUM(emoji_reactions_given) as emoji_reactions_given,
-		    SUM(emoji_reactions_received) as emoji_reactions_received,
-		    (SELECT COUNT(*) + 1 FROM (
-		        SELECT
-		            username,
-		            SUM(points_received) as total_points
-		        FROM (
-		            SELECT to_user as username, points as points_received, 0 as points_given FROM karma_transactions WHERE year = $1
-		            UNION ALL
-		            SELECT from_user as username, 0 as points_received, CASE WHEN points > 0 THEN points ELSE 0 END as points_given FROM karma_transactions WHERE year = $1
-		        ) as combined_transactions
-		        GROUP BY username
-		    ) as leaderboard_data WHERE total_points > (
-		        SELECT SUM(points_received)
-		        FROM (
-		            SELECT to_user as username, points as points_received, 0 as points_given FROM karma_transactions WHERE to_user = $2 AND year = $1
-		            UNION ALL
-		            SELECT from_user as username, 0 as points_received, CASE WHEN points > 0 THEN points ELSE 0 END as points_given FROM karma_transactions WHERE from_user = $2 AND year = $1
-		        ) as user_combined_transactions
-		        GROUP BY username
-		    )) as rank
+			username,
+			total_points,
+			points_given,
+			points_received,
+			transactions_given,
+			transactions_received,
+			emoji_reactions_given,
+			emoji_reactions_received,
+			rank
 		FROM (
-		    SELECT
-		        to_user as username,
-		        points as points_received,
-		        0 as points_given,
-		        1 as transactions_received,
-		        0 as transactions_given,
-		        CASE WHEN transaction_type = 'reactji' THEN 1 ELSE 0 END as emoji_reactions_received,
-		        0 as emoji_reactions_given
-		    FROM karma_transactions
-		    WHERE to_user = $2 AND year = $1
-		    UNION ALL
-		    SELECT
-		        from_user as username,
-		        0 as points_received,
-		        CASE WHEN points > 0 THEN points ELSE 0 END as points_given,
-		        0 as transactions_received,
-		        1 as transactions_given,
-		        0 as emoji_reactions_received,
-		        CASE WHEN transaction_type = 'reactji' THEN 1 ELSE 0 END as emoji_reactions_given
-		    FROM karma_transactions
-		    WHERE from_user = $2 AND year = $1
-		) as combined_transactions
-		GROUP BY username
+			SELECT
+				username,
+				total_points,
+				points_given,
+				points_received,
+				transactions_given,
+				transactions_received,
+				emoji_reactions_given,
+				emoji_reactions_received,
+				RANK() OVER (ORDER BY total_points DESC) as rank
+			FROM user_summary_yearly
+			WHERE year = $1
+		) ranked_users
+		WHERE username = $2
 	`
 
 	user := &UserSummary{Year: &year}
@@ -373,23 +272,14 @@ func (us *UserService) GetTopGivers(limit int, year int) ([]*UserSummary, error)
 
 // GetTotalUsers returns total unique users across all years
 func (us *UserService) GetTotalUsers(year int) (int, error) {
-	query := `
-		SELECT COUNT(DISTINCT username) FROM (
-			SELECT to_user as username, timestamp, year FROM karma_transactions
-			UNION ALL
-			SELECT from_user as username, timestamp, year FROM karma_transactions
-		) as users
-	`
-
-	args := []interface{}{}
-
 	if year > 0 {
-		query += " WHERE year = $1"
-		args = append(args, year)
+		var total int
+		err := us.db.SQL.QueryRow(`SELECT COUNT(*) FROM user_summary_yearly WHERE year = $1`, year).Scan(&total)
+		return total, err
 	}
 
 	var total int
-	err := us.db.SQL.QueryRow(query, args...).Scan(&total)
+	err := us.db.SQL.QueryRow(`SELECT COUNT(*) FROM user_summary_current`).Scan(&total)
 	return total, err
 }
 

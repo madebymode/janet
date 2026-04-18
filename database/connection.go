@@ -50,7 +50,29 @@ func (db *V2DB) Init() error {
 		return err
 	}
 
+	if err := ensureSchema(conn); err != nil {
+		_ = conn.Close()
+		return err
+	}
+
 	db.SQL = conn
+	return nil
+}
+
+func ensureSchema(conn *sql.DB) error {
+	statements := []string{
+		`ALTER TABLE IF EXISTS karma_transactions
+			ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_karma_transactions_dedupe_key
+			ON karma_transactions(dedupe_key) WHERE dedupe_key IS NOT NULL`,
+	}
+
+	for _, statement := range statements {
+		if _, err := conn.Exec(statement); err != nil {
+			return fmt.Errorf("failed to ensure database schema: %w", err)
+		}
+	}
+
 	return nil
 }
 

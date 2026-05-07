@@ -11,12 +11,15 @@ type TransactionRepository interface {
 	GetRecentActivityByCurrentYear(limit int) ([]*Transaction, error)
 	GetRecentActivityByYear(limit int, year int) ([]*Transaction, error)
 	GetRecentActivityCumulative(limit int) ([]*Transaction, error)
+	GetRecentActivityPage(filter RecentActivityFilter) (*RecentActivityPage, error)
 
 	// User transactions methods
 	GetTransactionsByUser(username string) ([]*Transaction, error) // Default: current year
 	GetTransactionsByUserByCurrentYear(username string) ([]*Transaction, error)
 	GetTransactionsByUserByYear(username string, year int) ([]*Transaction, error)
 	GetTransactionsByUserCumulative(username string) ([]*Transaction, error)
+	GetUserMonthlyPointsByYear(username string, year int) ([]*MonthlyPoints, error)
+	GetUserYearlyPoints(username string) ([]*YearlyPoints, error)
 
 	// Transaction count methods
 	GetTotalTransactions() (int, error) // Default: current year

@@ -83,6 +83,29 @@ type MonthlyStats struct {
 	MostActiveUser     *string `json:"most_active_user,omitempty"`
 }
 
+type MonthlyPoints struct {
+	Month       int `json:"month"`
+	TotalPoints int `json:"totalPoints"`
+}
+
+type YearlyPoints struct {
+	Year        int `json:"year"`
+	TotalPoints int `json:"totalPoints"`
+}
+
+type RecentActivityFilter struct {
+	Limit    int
+	Offset   int
+	Year     int
+	FromUser string
+	ToUser   string
+}
+
+type RecentActivityPage struct {
+	Activities []*Transaction `json:"activities"`
+	TotalCount int            `json:"totalCount"`
+}
+
 // BackfillRecord represents a potential record to backfill
 type BackfillRecord struct {
 	FromUser        string
@@ -116,19 +139,19 @@ type PopularMessage struct {
 
 // PopularMessageDetails represents cached Slack metadata for a message
 type PopularMessageDetails struct {
-	MessageID string
-	ChannelID *string
-	Text      *string
-	Permalink *string
-	AuthorID  *string
-	AuthorName *string
-	AuthorAvatar *string
-	ImageURL  *string
-	AttachmentURL *string
+	MessageID      string
+	ChannelID      *string
+	Text           *string
+	Permalink      *string
+	AuthorID       *string
+	AuthorName     *string
+	AuthorAvatar   *string
+	ImageURL       *string
+	AttachmentURL  *string
 	AttachmentMime *string
-	ReactionCount *int
-	IsReply   *bool
-	IsIgnored *bool
+	ReactionCount  *int
+	IsReply        *bool
+	IsIgnored      *bool
 	DetailsFetched *bool
 }
 

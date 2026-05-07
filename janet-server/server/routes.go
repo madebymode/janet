@@ -4,6 +4,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -55,19 +56,23 @@ func (s *Server) setupRoutes() {
 func (s *Server) staticFileHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Remove /static/ prefix and prepend web/ for embedded filesystem
-		path := strings.TrimPrefix(r.URL.Path, "/static/")
-		path = "web/static/" + path
+		relPath := path.Clean(strings.TrimPrefix(r.URL.Path, "/static/"))
+		if relPath == "." || strings.HasPrefix(relPath, "..") {
+			http.NotFound(w, r)
+			return
+		}
+		filePath := path.Join("web/static", relPath)
 
 		// Read the file from embedded filesystem
-		content, err := s.webFS.ReadFile(path)
+		content, err := s.webFS.ReadFile(filePath)
 		if err != nil {
-			s.logger.Err(err).KV("path", path).Error("failed to read static file")
+			s.logger.Err(err).KV("path", filePath).Error("failed to read static file")
 			http.NotFound(w, r)
 			return
 		}
 
 		// Set the correct MIME type based on file extension
-		ext := filepath.Ext(path)
+		ext := filepath.Ext(filePath)
 		contentType := mime.TypeByExtension(ext)
 		if contentType == "" {
 			// Fallback for common web file types
@@ -90,7 +95,8 @@ func (s *Server) staticFileHandler() http.Handler {
 		}
 
 		w.Header().Set("Content-Type", contentType)
-		w.Write(content)
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		_, _ = w.Write(content)
 	})
 }
 
@@ -110,6 +116,26 @@ func (s *Server) attachmentsFileHandler() http.Handler {
 		}
 
 		fullPath := filepath.Join(s.config.AttachmentsDir, cleanPath)
+		baseDir, err := filepath.Abs(s.config.AttachmentsDir)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		fullPath, err = filepath.Abs(fullPath)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if fullPath != baseDir && !strings.HasPrefix(fullPath, baseDir+string(filepath.Separator)) {
+			http.NotFound(w, r)
+			return
+		}
+
+		if info, err := os.Lstat(fullPath); err != nil || info.Mode()&os.ModeSymlink != 0 {
+			http.NotFound(w, r)
+			return
+		}
+
 		file, err := os.Open(fullPath)
 		if err != nil {
 			http.NotFound(w, r)

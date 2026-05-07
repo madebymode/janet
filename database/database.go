@@ -58,6 +58,10 @@ func (db *V2DB) GetRecentActivityCumulative(limit int) ([]*Transaction, error) {
 	return db.transactionService().GetRecentActivityCumulative(limit)
 }
 
+func (db *V2DB) GetRecentActivityPage(filter RecentActivityFilter) (*RecentActivityPage, error) {
+	return db.transactionService().GetRecentActivityPage(filter)
+}
+
 // User transactions methods
 func (db *V2DB) GetTransactionsByUser(username string) ([]*Transaction, error) {
 	return db.transactionService().GetTransactionsByUserByCurrentYear(username)
@@ -73,6 +77,14 @@ func (db *V2DB) GetTransactionsByUserByYear(username string, year int) ([]*Trans
 
 func (db *V2DB) GetTransactionsByUserCumulative(username string) ([]*Transaction, error) {
 	return db.transactionService().GetTransactionsByUserCumulative(username)
+}
+
+func (db *V2DB) GetUserMonthlyPointsByYear(username string, year int) ([]*MonthlyPoints, error) {
+	return db.transactionService().GetUserMonthlyPointsByYear(username, year)
+}
+
+func (db *V2DB) GetUserYearlyPoints(username string) ([]*YearlyPoints, error) {
+	return db.transactionService().GetUserYearlyPoints(username)
 }
 
 // Transaction count methods

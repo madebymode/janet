@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"net"
 	"net/http"
@@ -32,52 +31,48 @@ func (s *Server) requestLoggingMiddleware(next http.Handler) http.Handler {
 		// Get the real client IP address
 		clientIP := getRealClientIP(r)
 
-		// Log the request details to stdout
-		fmt.Printf("[%s] %s %s %s - %d - %v - %s\n",
-			start.Format("2006-01-02 15:04:05"),
-			clientIP,
-			r.Method,
-			r.URL.Path,
-			wrapped.statusCode,
-			duration,
-			r.URL.RawQuery,
-		)
+		s.logger.KV("client_ip", clientIP).
+			KV("method", r.Method).
+			KV("path", r.URL.Path).
+			KV("status", wrapped.statusCode).
+			KV("duration", duration.String()).
+			KV("query", r.URL.RawQuery).
+			Info("http_request")
 	})
 }
 
 // getRealClientIP extracts the real client IP from common proxy headers
 func getRealClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header (most common)
-	if xForwardedFor := r.Header.Get("X-Forwarded-For"); xForwardedFor != "" {
-		// X-Forwarded-For can contain multiple IPs, take the first one
-		ips := strings.Split(xForwardedFor, ",")
-		if len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
+	for _, header := range []string{
+		"X-Forwarded-For",
+		"X-Real-IP",
+		"CF-Connecting-IP",
+		"True-Client-IP",
+		"X-Client-IP",
+	} {
+		if value := firstValidIP(r.Header.Get(header)); value != "" {
+			return value
 		}
 	}
 
-	// Check X-Real-IP header (Nginx)
-	if xRealIP := r.Header.Get("X-Real-IP"); xRealIP != "" {
-		return xRealIP
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && net.ParseIP(host) != nil {
+		return host
 	}
-
-	// Check CF-Connecting-IP header (Cloudflare)
-	if cfConnectingIP := r.Header.Get("CF-Connecting-IP"); cfConnectingIP != "" {
-		return cfConnectingIP
+	if net.ParseIP(r.RemoteAddr) != nil {
+		return r.RemoteAddr
 	}
+	return ""
+}
 
-	// Check True-Client-IP header (Akamai, Cloudflare)
-	if trueClientIP := r.Header.Get("True-Client-IP"); trueClientIP != "" {
-		return trueClientIP
+func firstValidIP(value string) string {
+	for _, candidate := range strings.Split(value, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if net.ParseIP(candidate) != nil {
+			return candidate
+		}
 	}
-
-	// Check X-Client-IP header
-	if xClientIP := r.Header.Get("X-Client-IP"); xClientIP != "" {
-		return xClientIP
-	}
-
-	// Fall back to RemoteAddr
-	return r.RemoteAddr
+	return ""
 }
 
 // responseWriter wraps http.ResponseWriter to capture status code
@@ -192,36 +187,33 @@ func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 // securityHeadersMiddleware adds essential security headers to all responses
 func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Strict Transport Security - Force HTTPS for 1 year
-		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		}
 
-		// Content Security Policy - Restrict resource loading
 		csp := "default-src 'self'; " +
-			"script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+			"base-uri 'self'; " +
+			"object-src 'none'; " +
+			"script-src 'self'; " +
 			"style-src 'self' 'unsafe-inline'; " +
 			"img-src 'self' data: https:; " +
 			"font-src 'self'; " +
 			"connect-src 'self'; " +
-			"frame-ancestors 'none'"
+			"frame-ancestors 'none'; " +
+			"form-action 'self'"
 		w.Header().Set("Content-Security-Policy", csp)
-
-		// X-Frame-Options - Prevent clickjacking
 		w.Header().Set("X-Frame-Options", "DENY")
-
-		// X-Content-Type-Options - Prevent MIME type sniffing
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-
-		// X-XSS-Protection - Enable XSS filtering (legacy browsers)
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
-
-		// Referrer-Policy - Control referrer information
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-
-		// Permissions-Policy - Restrict browser features
 		w.Header().Set("Permissions-Policy", "()")
-
-		// X-Permitted-Cross-Domain-Policies - Block Adobe Flash/PDF cross-domain requests
 		w.Header().Set("X-Permitted-Cross-Domain-Policies", "none")
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+		w.Header().Set("Origin-Agent-Cluster", "?1")
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 
 		next.ServeHTTP(w, r)
 	})

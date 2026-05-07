@@ -117,12 +117,18 @@ func (ss *StatsService) GetPointsOverTimeMonthly(year int) ([]map[string]interfa
 		    EXTRACT(MONTH FROM timestamp) as month,
 		    SUM(points) as total_points
 		FROM karma_transactions
-		WHERE year = $1
+	`
+	args := []interface{}{}
+	if year > 0 {
+		query += " WHERE year = $1"
+		args = append(args, year)
+	}
+	query += `
 		GROUP BY EXTRACT(MONTH FROM timestamp)
 		ORDER BY month
 	`
 
-	rows, err := ss.db.SQL.Query(query, year)
+	rows, err := ss.db.SQL.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -210,8 +216,10 @@ func (ss *StatsService) GetKarmaDistribution(year int) ([]map[string]interface{}
 	}
 
 	// Convert to response format
+	keys := []string{"0 to 10", "11 to 50", "51 to 100", "101 to 200", "201 to 500", "501 to 1000", "1000+"}
 	var response []map[string]interface{}
-	for rangeStr, count := range distribution {
+	for _, rangeStr := range keys {
+		count := distribution[rangeStr]
 		if count > 0 { // Only include ranges with users
 			response = append(response, map[string]interface{}{
 				"range": rangeStr,
@@ -232,12 +240,18 @@ func (ss *StatsService) GetActivityTimeline(year int) ([]map[string]interface{},
 			SUM(CASE WHEN points < 0 THEN ABS(points) ELSE 0 END) as negative,
 			COUNT(*) as total
 		FROM karma_transactions
-		WHERE year = $1
+	`
+	args := []interface{}{}
+	if year > 0 {
+		query += " WHERE year = $1"
+		args = append(args, year)
+	}
+	query += `
 		GROUP BY DATE_TRUNC('month', timestamp)
 		ORDER BY DATE_TRUNC('month', timestamp)
 	`
 
-	rows, err := ss.db.SQL.Query(query, year)
+	rows, err := ss.db.SQL.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

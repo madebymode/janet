@@ -1,9 +1,7 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -12,25 +10,19 @@ import (
 
 // HandleAPILeaderboard handles requests for the general leaderboard
 func (h *Handler) HandleAPILeaderboard(w http.ResponseWriter, r *http.Request) {
-	limit := 10
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil {
-			limit = parsed
-		}
-	}
+	limit := parseIntQuery(r, "limit", 10, 1, 100)
 
 	var leaderboard []*database.UserSummary
 	var err error
 
 	// Check for year query parameter
-	yearParam := r.URL.Query().Get("year")
-	if yearParam != "" {
+	yearInt, err := parseOptionalYear(r)
+	if err != nil {
+		http.Error(w, "Invalid year", http.StatusBadRequest)
+		return
+	}
+	if yearInt > 0 {
 		// Year specified, get year-specific leaderboard
-		yearInt, parseErr := strconv.Atoi(yearParam)
-		if parseErr != nil || yearInt < 2020 || yearInt > 2030 {
-			http.Error(w, "Invalid year", http.StatusBadRequest)
-			return
-		}
 		leaderboard, err = h.db.GetYearlyLeaderboard(yearInt, limit)
 		if err != nil {
 			h.logger.Err(err).Error("failed to get yearly leaderboard")
@@ -59,12 +51,11 @@ func (h *Handler) HandleAPILeaderboard(w http.ResponseWriter, r *http.Request) {
 	enrichedLeaderboard := h.slack.EnrichUsersWithSlackInfo(filteredLeaderboard)
 
 	// Filter out bots and deleted users by default (unless show_all=true)
-	if r.URL.Query().Get("show_all") != "true" {
+	if !parseBoolQuery(r, "show_all") {
 		enrichedLeaderboard = filterActiveUsers(enrichedLeaderboard)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"users": enrichedLeaderboard})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"users": enrichedLeaderboard})
 }
 
 // HandleAPIYearlyLeaderboard handles requests for yearly leaderboards
@@ -72,18 +63,13 @@ func (h *Handler) HandleAPIYearlyLeaderboard(w http.ResponseWriter, r *http.Requ
 	vars := mux.Vars(r)
 	year := vars["year"]
 
-	yearInt, err := strconv.Atoi(year)
-	if err != nil || yearInt < 2020 || yearInt > 2030 {
+	yearInt, err := parseRequiredYear(year)
+	if err != nil {
 		http.Error(w, "Invalid year", http.StatusBadRequest)
 		return
 	}
 
-	limit := 25
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil {
-			limit = parsed
-		}
-	}
+	limit := parseIntQuery(r, "limit", 25, 1, 100)
 
 	leaderboard, err := h.db.GetYearlyLeaderboard(yearInt, limit)
 	if err != nil {
@@ -96,22 +82,16 @@ func (h *Handler) HandleAPIYearlyLeaderboard(w http.ResponseWriter, r *http.Requ
 	enrichedLeaderboard := h.slack.EnrichUsersWithSlackInfo(leaderboard)
 
 	// Filter out bots and deleted users by default (unless show_all=true)
-	if r.URL.Query().Get("show_all") != "true" {
+	if !parseBoolQuery(r, "show_all") {
 		enrichedLeaderboard = filterActiveUsers(enrichedLeaderboard)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"users": enrichedLeaderboard})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"users": enrichedLeaderboard})
 }
 
 // HandleAPICurrentLeaderboard handles requests for current year vs all-time leaderboards
 func (h *Handler) HandleAPICurrentLeaderboard(w http.ResponseWriter, r *http.Request) {
-	limit := 25
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil {
-			limit = parsed
-		}
-	}
+	limit := parseIntQuery(r, "limit", 25, 1, 100)
 
 	currentYear := time.Now().Year()
 
@@ -136,7 +116,7 @@ func (h *Handler) HandleAPICurrentLeaderboard(w http.ResponseWriter, r *http.Req
 	enrichedAllTimeLeaderboard := h.slack.EnrichUsersWithSlackInfo(allTimeLeaderboard)
 
 	// Filter out bots and deleted users by default (unless show_all=true)
-	if r.URL.Query().Get("show_all") != "true" {
+	if !parseBoolQuery(r, "show_all") {
 		enrichedCurrentLeaderboard = filterActiveUsers(enrichedCurrentLeaderboard)
 		enrichedAllTimeLeaderboard = filterActiveUsers(enrichedAllTimeLeaderboard)
 	}
@@ -147,6 +127,5 @@ func (h *Handler) HandleAPICurrentLeaderboard(w http.ResponseWriter, r *http.Req
 		"year":    currentYear,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, response)
 }

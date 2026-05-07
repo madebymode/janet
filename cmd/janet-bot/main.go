@@ -11,51 +11,18 @@ import (
 
 	"github.com/aybabtme/log"
 	"github.com/joho/godotenv"
-	"github.com/slack-go/slack"
-	"github.com/slack-go/slack/socketmode"
 	"github.com/troyxmccall/janet"
 	"github.com/troyxmccall/janet/database"
+	janetruntime "github.com/troyxmccall/janet/internal/runtime"
 )
-
-// Config holds the bot configuration
-type BotConfig struct {
-	// Database
-	DatabaseDriver string
-	DatabaseURL    string
-
-	// Slack
-	SlackToken          string
-	SlackSocketToken    string
-	GoodPlaceJudgeBotID string
-
-	// Bot behavior
-	MaxPoints        int
-	LeaderboardLimit int
-	ReplyType        string
-	Debug            bool
-	SelfKarma        bool
-	Motivate         bool
-	ReactjiEnabled   bool
-
-	// Bot personalities
-	GoodJanetUsername string
-	GoodJanetIconURL  string
-	BadJanetUsername  string
-	BadJanetIconURL   string
-
-	// User management
-	UserBlacklist []string
-	UserAliases   map[string]string
-}
 
 // BotService represents the dedicated bot service
 type BotService struct {
-	config       *BotConfig
-	db           *database.V2DB
-	bot          *janet.Bot
-	logger       *log.Log
-	slackClient  *slack.Client
-	socketClient *socketmode.Client
+	config  *janetruntime.BotOptions
+	db      *database.V2DB
+	bot     *janet.Bot
+	logger  *log.Log
+	runtime *janetruntime.SlackBotRuntime
 }
 
 func main() {
@@ -92,11 +59,11 @@ func main() {
 }
 
 // NewBotService creates a new bot service
-func NewBotService(config *BotConfig, logger *log.Log) (*BotService, error) {
+func NewBotService(config *janetruntime.BotOptions, logger *log.Log) (*BotService, error) {
 	// Initialize database
 	v2db, err := database.NewV2(&database.Config{
-		Driver: config.DatabaseDriver,
-		URL:    config.DatabaseURL,
+		Driver: janetruntime.GetEnv("JANET_DATABASE_DRIVER", "postgres"),
+		URL:    janetruntime.GetEnv("JANET_DATABASE_URL", "postgres://janet:password@localhost:5432/janet?sslmode=disable"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
@@ -104,16 +71,10 @@ func NewBotService(config *BotConfig, logger *log.Log) (*BotService, error) {
 
 	logger.Info("connected to database")
 
-	// Initialize Slack clients
-	slackClient := slack.New(config.SlackToken, slack.OptionDebug(config.Debug), slack.OptionAppLevelToken(config.SlackSocketToken))
-	socketClient := socketmode.New(slackClient, socketmode.OptionDebug(config.Debug))
-
 	service := &BotService{
-		config:       config,
-		db:           v2db,
-		logger:       logger,
-		slackClient:  slackClient,
-		socketClient: socketClient,
+		config: config,
+		db:     v2db,
+		logger: logger,
 	}
 
 	// Initialize bot
@@ -126,77 +87,12 @@ func NewBotService(config *BotConfig, logger *log.Log) (*BotService, error) {
 
 // initializeBot sets up the Slack bot
 func (s *BotService) initializeBot() error {
-	// Convert config to janet format
-	blacklistMap := make(janet.StringList)
-	for _, user := range s.config.UserBlacklist {
-		blacklistMap[user] = struct{}{}
+	runtime, err := janetruntime.NewSlackBotRuntime(*s.config, s.db, s.logger)
+	if err != nil {
+		return err
 	}
-
-	userAliases := make(janet.UserAliases)
-	for alias, main := range s.config.UserAliases {
-		userAliases[alias] = main
-	}
-
-	reactjiConfig := &janet.ReactjiConfig{
-		Enabled: s.config.ReactjiEnabled,
-		UpVote: janet.StringList{
-			// All emojis that award +3 points (matching backfill service)
-			"thumbsup":      struct{}{},
-			"+1":            struct{}{},
-			"thumbsup_all":  struct{}{},
-			"joy":           struct{}{},
-			"100":           struct{}{},
-			"heart":         struct{}{},
-			"clap":          struct{}{},
-			"coffin":        struct{}{},
-			"fire":          struct{}{},
-			"heart_on_fire": struct{}{},
-			"lol":           struct{}{},
-			"nail_care":     struct{}{},
-			"rainbow":       struct{}{},
-			"rip":           struct{}{},
-			"skull":         struct{}{},
-			"sparkles":      struct{}{},
-			"star-struck":   struct{}{},
-			"star":          struct{}{},
-			"star2":         struct{}{},
-			"unicorn_face":  struct{}{},
-			"yellow_heart":  struct{}{},
-			"zach-cowboy":   struct{}{},
-		},
-		DownVote:     janet.StringList{"thumbsdown": struct{}{}, "-1": struct{}{}},
-		RepeatPoints: janet.StringList{"bangbang": struct{}{}, "exclamation": struct{}{}, "!!!": struct{}{}},
-	}
-
-	botConfig := &janet.Config{
-		Slack:               &janet.SlackChatService{s.slackClient},
-		SlackWebClient:      s.slackClient,
-		Debug:               s.config.Debug,
-		MaxPoints:           s.config.MaxPoints,
-		LeaderboardLimit:    s.config.LeaderboardLimit,
-		Log:                 s.logger.KV("component", "bot"),
-		UI:                  &janet.BlankUIProvider{},
-		DB:                  s.db,
-		UserBlacklist:       blacklistMap,
-		Reactji:             reactjiConfig,
-		Motivate:            s.config.Motivate,
-		Aliases:             userAliases,
-		SelfPoints:          s.config.SelfKarma,
-		ReplyType:           s.config.ReplyType,
-		GoodPlaceJudgeBotID: s.config.GoodPlaceJudgeBotID,
-		GoodPersonality: janet.BotPersonality{
-			Username: s.config.GoodJanetUsername,
-			IconURL:  s.config.GoodJanetIconURL,
-			IsGood:   true,
-		},
-		BadPersonality: janet.BotPersonality{
-			Username: s.config.BadJanetUsername,
-			IconURL:  s.config.BadJanetIconURL,
-			IsGood:   false,
-		},
-	}
-
-	s.bot = janet.New(botConfig)
+	s.runtime = runtime
+	s.bot = runtime.Bot
 	s.logger.Info("slack bot initialized")
 
 	return nil
@@ -209,7 +105,7 @@ func (s *BotService) Start() error {
 	// Start bot in goroutine
 	go func() {
 		s.logger.Info("bot listening for slack events via socket mode")
-		s.bot.ListenWithSocketMode(s.socketClient)
+		s.bot.ListenWithSocketMode(s.runtime.SocketClient)
 	}()
 
 	// Wait for interrupt signal
@@ -224,9 +120,9 @@ func (s *BotService) Start() error {
 	defer cancel()
 
 	// Close database connection
-	if s.db != nil && s.db.SQL != nil {
+	if s.db != nil {
 		s.logger.Info("closing database connection")
-		s.db.SQL.Close()
+		_ = s.db.Close()
 	}
 
 	select {
@@ -240,56 +136,23 @@ func (s *BotService) Start() error {
 }
 
 // loadConfigFromEnv loads configuration from environment variables
-func loadConfigFromEnv() *BotConfig {
-	return &BotConfig{
-		// Database
-		DatabaseDriver: getEnv("JANET_DATABASE_DRIVER", "postgres"),
-		DatabaseURL:    getEnv("JANET_DATABASE_URL", "postgres://janet:password@localhost:5432/janet?sslmode=disable"),
-
-		// Slack
-		SlackToken:          getEnv("JANET_SLACK_TOKEN", ""),
-		SlackSocketToken:    getEnv("JANET_SLACK_SOCKET_TOKEN", ""),
-		GoodPlaceJudgeBotID: getEnv("JANET_GOOD_PLACE_JUDGE_BOT_ID", ""),
-
-		// Bot behavior
-		MaxPoints:        parseInt(getEnv("JANET_MAX_POINTS", "5")),
-		LeaderboardLimit: parseInt(getEnv("JANET_LEADERBOARD_LIMIT", "10")),
-		ReplyType:        getEnv("JANET_REPLY_TYPE", "message"),
-		Debug:            parseBool(getEnv("JANET_DEBUG", "false")),
-		SelfKarma:        parseBool(getEnv("JANET_SELF_KARMA", "false")),
-		Motivate:         parseBool(getEnv("JANET_MOTIVATE", "true")),
-		ReactjiEnabled:   parseBool(getEnv("JANET_REACTJI_ENABLED", "true")),
-
-		// Bot personalities
-		GoodJanetUsername: getEnv("JANET_GOOD_USERNAME", "Good Janet"),
-		GoodJanetIconURL:  getEnv("JANET_GOOD_ICON_URL", ""),
-		BadJanetUsername:  getEnv("JANET_BAD_USERNAME", "Bad Janet"),
-		BadJanetIconURL:   getEnv("JANET_BAD_ICON_URL", ""),
-
-		// User management (can be extended to parse from env)
-		UserBlacklist: []string{},
-		UserAliases:   make(map[string]string),
+func loadConfigFromEnv() *janetruntime.BotOptions {
+	return &janetruntime.BotOptions{
+		SlackToken:          janetruntime.GetEnv("JANET_SLACK_TOKEN", ""),
+		SlackSocketToken:    janetruntime.GetEnv("JANET_SLACK_SOCKET_TOKEN", ""),
+		GoodPlaceJudgeBotID: janetruntime.GetEnv("JANET_GOOD_PLACE_JUDGE_BOT_ID", ""),
+		MaxPoints:           janetruntime.ParseInt(os.Getenv("JANET_MAX_POINTS"), 5),
+		LeaderboardLimit:    janetruntime.ParseInt(os.Getenv("JANET_LEADERBOARD_LIMIT"), 10),
+		ReplyType:           janetruntime.GetEnv("JANET_REPLY_TYPE", "thread"),
+		Debug:               janetruntime.ParseBool(os.Getenv("JANET_DEBUG"), false),
+		SelfKarma:           janetruntime.ParseBool(os.Getenv("JANET_SELF_KARMA"), false),
+		Motivate:            janetruntime.ParseBool(os.Getenv("JANET_MOTIVATE"), true),
+		ReactjiEnabled:      janetruntime.ParseBool(os.Getenv("JANET_REACTJI_ENABLED"), true),
+		GoodJanetUsername:   janetruntime.GetEnv("JANET_GOOD_USERNAME", "Good Janet"),
+		GoodJanetIconURL:    janetruntime.GetEnv("JANET_GOOD_ICON_URL", ""),
+		BadJanetUsername:    janetruntime.GetEnv("JANET_BAD_USERNAME", "Bad Janet"),
+		BadJanetIconURL:     janetruntime.GetEnv("JANET_BAD_ICON_URL", ""),
+		UserBlacklist:       janetruntime.ParseCSV(os.Getenv("JANET_USER_BLACKLIST")),
+		UserAliases:         janetruntime.ParseStringMap(os.Getenv("JANET_USER_ALIASES")),
 	}
-}
-
-// Helper functions
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func parseInt(s string) int {
-	if s == "" {
-		return 0
-	}
-	// Simple int parsing, can be improved with proper error handling
-	var result int
-	fmt.Sscanf(s, "%d", &result)
-	return result
-}
-
-func parseBool(s string) bool {
-	return s == "true" || s == "1" || s == "yes"
 }

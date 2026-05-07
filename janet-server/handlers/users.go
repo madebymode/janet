@@ -1,9 +1,7 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/gorilla/mux"
 	"github.com/troyxmccall/janet/database"
@@ -31,8 +29,7 @@ func (h *Handler) HandleAPIUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(summary)
+	writeJSON(w, http.StatusOK, summary)
 }
 
 // HandleAPIUserByYear handles requests for user information for a specific year
@@ -47,8 +44,8 @@ func (h *Handler) HandleAPIUserByYear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	yearInt, err := strconv.Atoi(year)
-	if err != nil || yearInt < 2020 || yearInt > 2030 {
+	yearInt, err := parseRequiredYear(year)
+	if err != nil {
 		http.Error(w, "Invalid year", http.StatusBadRequest)
 		return
 	}
@@ -64,8 +61,7 @@ func (h *Handler) HandleAPIUserByYear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+	writeJSON(w, http.StatusOK, user)
 }
 
 // HandleAPIUserPointsOverTime handles requests for user points over time for a specific year
@@ -80,52 +76,20 @@ func (h *Handler) HandleAPIUserPointsOverTime(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	yearInt, err := strconv.Atoi(year)
-	if err != nil || yearInt < 2020 || yearInt > 2030 {
+	yearInt, err := parseRequiredYear(year)
+	if err != nil {
 		http.Error(w, "Invalid year", http.StatusBadRequest)
 		return
 	}
 
-	// Query user_summary_monthly table for user-specific data
-	query := `
-		SELECT month, total_points
-		FROM user_summary_monthly
-		WHERE username = $1 AND year = $2
-		ORDER BY month
-	`
-
-	rows, err := h.db.SQL.Query(query, username, yearInt)
+	results, err := h.db.GetUserMonthlyPointsByYear(username, yearInt)
 	if err != nil {
-		h.logger.Err(err).Error("failed to query user points over time")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
-	type MonthlyPoints struct {
-		Month       int `json:"month"`
-		TotalPoints int `json:"totalPoints"`
-	}
-
-	var results []MonthlyPoints
-	for rows.Next() {
-		var mp MonthlyPoints
-		if err := rows.Scan(&mp.Month, &mp.TotalPoints); err != nil {
-			h.logger.Err(err).Error("failed to scan monthly points")
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-		results = append(results, mp)
-	}
-
-	if err := rows.Err(); err != nil {
-		h.logger.Err(err).Error("row iteration error")
+		h.logger.Err(err).Error("failed to get user points over time")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	writeJSON(w, http.StatusOK, results)
 }
 
 // HandleAPIUserAllTimePointsOverTime handles requests for user points over time across all years
@@ -139,47 +103,11 @@ func (h *Handler) HandleAPIUserAllTimePointsOverTime(w http.ResponseWriter, r *h
 		return
 	}
 
-	// Query user-specific yearly data for all-time view
-	query := `
-		SELECT 
-			EXTRACT(YEAR FROM timestamp) as year,
-			SUM(points) as totalPoints
-		FROM karma_transactions
-		WHERE to_user = $1
-		GROUP BY EXTRACT(YEAR FROM timestamp)
-		ORDER BY year
-	`
-
-	rows, err := h.db.SQL.Query(query, username)
+	results, err := h.db.GetUserYearlyPoints(username)
 	if err != nil {
 		h.logger.Err(err).Error("failed to get user all-time points over time")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
-
-	type YearlyPoints struct {
-		Year        int `json:"year"`
-		TotalPoints int `json:"totalPoints"`
-	}
-
-	var results []YearlyPoints
-	for rows.Next() {
-		var yp YearlyPoints
-		err := rows.Scan(&yp.Year, &yp.TotalPoints)
-		if err != nil {
-			h.logger.Err(err).Error("failed to scan yearly points")
-			continue
-		}
-		results = append(results, yp)
-	}
-
-	if err := rows.Err(); err != nil {
-		h.logger.Err(err).Error("row iteration error")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	writeJSON(w, http.StatusOK, results)
 }

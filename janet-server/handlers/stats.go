@@ -1,25 +1,15 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
-	"sort"
 
 	"github.com/gorilla/mux"
-	"github.com/troyxmccall/janet/database"
 )
 
 // HandleAPIStatsV2 handles requests for basic statistics (V2 API)
 func (h *Handler) HandleAPIStatsV2(w http.ResponseWriter, r *http.Request) {
-	year := 0
-	if yearStr := r.URL.Query().Get("year"); yearStr != "" {
-		if parsed, err := strconv.Atoi(yearStr); err == nil {
-			year = parsed
-		}
-	}
+	year, _ := parseOptionalYear(r)
 
 	var totalPoints int
 	if year == 0 {
@@ -48,18 +38,12 @@ func (h *Handler) HandleAPIStatsV2(w http.ResponseWriter, r *http.Request) {
 		"totalTransactions": totalTransactions,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 // HandleAPIStatsDetailed handles requests for detailed statistics
 func (h *Handler) HandleAPIStatsDetailed(w http.ResponseWriter, r *http.Request) {
-	year := 0
-	if yearStr := r.URL.Query().Get("year"); yearStr != "" {
-		if parsed, err := strconv.Atoi(yearStr); err == nil {
-			year = parsed
-		}
-	}
+	year, _ := parseOptionalYear(r)
 
 	var err error
 	var totalUsers int
@@ -131,18 +115,12 @@ func (h *Handler) HandleAPIStatsDetailed(w http.ResponseWriter, r *http.Request)
 		"avgPointsPerUser":     avgPointsPerUser,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 // HandleAPITopGivers handles requests for top karma givers
 func (h *Handler) HandleAPITopGivers(w http.ResponseWriter, r *http.Request) {
-	limit := 10
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil {
-			limit = parsed
-		}
-	}
+	limit := parseIntQuery(r, "limit", 10, 1, 100)
 
 	topGivers, err := h.db.GetTopGiversCumulative(limit)
 	if err != nil {
@@ -155,29 +133,23 @@ func (h *Handler) HandleAPITopGivers(w http.ResponseWriter, r *http.Request) {
 	enrichedTopGivers := h.slack.EnrichUsersWithSlackInfo(topGivers)
 
 	// Filter out bots and deleted users by default (unless show_all=true)
-	if r.URL.Query().Get("show_all") != "true" {
+	if !parseBoolQuery(r, "show_all") {
 		enrichedTopGivers = filterActiveUsers(enrichedTopGivers)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"users": enrichedTopGivers})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"users": enrichedTopGivers})
 }
 
 // HandleAPITopGiversByYear handles requests for top karma givers by year
 func (h *Handler) HandleAPITopGiversByYear(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	year, err := strconv.Atoi(vars["year"])
+	year, err := parseRequiredYear(vars["year"])
 	if err != nil {
 		http.Error(w, "Invalid year", http.StatusBadRequest)
 		return
 	}
 
-	limit := 10
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil {
-			limit = parsed
-		}
-	}
+	limit := parseIntQuery(r, "limit", 10, 1, 100)
 
 	topGivers, err := h.db.GetTopGiversByYear(limit, year)
 	if err != nil {
@@ -190,12 +162,11 @@ func (h *Handler) HandleAPITopGiversByYear(w http.ResponseWriter, r *http.Reques
 	enrichedTopGivers := h.slack.EnrichUsersWithSlackInfo(topGivers)
 
 	// Filter out bots and deleted users by default (unless show_all=true)
-	if r.URL.Query().Get("show_all") != "true" {
+	if !parseBoolQuery(r, "show_all") {
 		enrichedTopGivers = filterActiveUsers(enrichedTopGivers)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"users": enrichedTopGivers})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"users": enrichedTopGivers})
 }
 
 // HandleAPIAvailableYears handles requests for available data years
@@ -207,24 +178,19 @@ func (h *Handler) HandleAPIAvailableYears(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(years)
+	writeJSON(w, http.StatusOK, years)
 }
 
 // HandleAPITopEmojis handles requests for top emoji usage
 func (h *Handler) HandleAPITopEmojis(w http.ResponseWriter, r *http.Request) {
-	limit := 10
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil {
-			limit = parsed
-		}
+	limit := parseIntQuery(r, "limit", 10, 1, 100)
+	year, err := parseOptionalYear(r)
+	if err != nil {
+		http.Error(w, "Invalid year", http.StatusBadRequest)
+		return
 	}
-
-	year := time.Now().Year()
-	if y := r.URL.Query().Get("year"); y != "" {
-		if parsed, err := strconv.Atoi(y); err == nil {
-			year = parsed
-		}
+	if year == 0 {
+		year = time.Now().Year()
 	}
 
 	emojis, err := h.db.GetTopEmojisByYear(year, limit)
@@ -254,510 +220,97 @@ func (h *Handler) HandleAPITopEmojis(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 // HandleAPIKarmaDistribution handles requests for karma point distribution
 func (h *Handler) HandleAPIKarmaDistribution(w http.ResponseWriter, r *http.Request) {
-	year := 0
-	if yearStr := r.URL.Query().Get("year"); yearStr != "" {
-		if parsed, err := strconv.Atoi(yearStr); err == nil {
-			year = parsed
-		}
-	}
-
-	// Get leaderboard data
-	var leaderboard []*database.UserSummary
-	var err error
-
-	if year > 0 {
-		leaderboard, err = h.db.GetYearlyLeaderboard(year, 1000) // Get more users for distribution
-	} else {
-		leaderboard, err = h.db.GetCurrentLeaderboard(1000)
-	}
-
+	year, err := parseOptionalYear(r)
 	if err != nil {
-		h.logger.Err(err).Error("failed to get leaderboard for karma distribution")
+		http.Error(w, "Invalid year", http.StatusBadRequest)
+		return
+	}
+
+	response, err := h.db.GetKarmaDistributionByYear(year)
+	if err != nil {
+		h.logger.Err(err).Error("failed to get karma distribution")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	// Group users into karma ranges
-	distribution := map[string]int{
-		"0 to 10":     0,
-		"11 to 50":    0,
-		"51 to 100":   0,
-		"101 to 200":  0,
-		"201 to 500":  0,
-		"501 to 1000": 0,
-		"1000+":       0,
-	}
-
-	for _, user := range leaderboard {
-		points := user.TotalPoints
-		switch {
-		case points >= 1000:
-			distribution["1000+"]++
-		case points >= 501:
-			distribution["501 to 1000"]++
-		case points >= 201:
-			distribution["201 to 500"]++
-		case points >= 101:
-			distribution["101 to 200"]++
-		case points >= 51:
-			distribution["51 to 100"]++
-		case points >= 11:
-			distribution["11 to 50"]++
-		default:
-			distribution["0 to 10"]++
-		}
-	}
-
-	// Convert to chart-friendly format
-	response := make([]map[string]interface{}, 0, len(distribution))
-	for rangeStr, count := range distribution {
-		if count > 0 { // Only include ranges with users
-			response = append(response, map[string]interface{}{
-				"range": rangeStr,
-				"count": count,
-			})
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 // HandleAPIActivityTimeline handles requests for activity timeline data
 func (h *Handler) HandleAPIActivityTimeline(w http.ResponseWriter, r *http.Request) {
-	year := 0
-	if yearStr := r.URL.Query().Get("year"); yearStr != "" {
-		if parsed, err := strconv.Atoi(yearStr); err == nil {
-			year = parsed
-		}
+	year, err := parseOptionalYear(r)
+	if err != nil {
+		http.Error(w, "Invalid year", http.StatusBadRequest)
+		return
 	}
 
-	var query string
-	var args []interface{}
-
-	query = `
-		SELECT
-			DATE_TRUNC('month', timestamp) as date,
-			SUM(CASE WHEN points > 0 THEN points ELSE 0 END) as positive,
-			SUM(CASE WHEN points < 0 THEN ABS(points) ELSE 0 END) as negative,
-			COUNT(*) as total
-		FROM karma_transactions
-		WHERE year = $1
-		GROUP BY DATE_TRUNC('month', timestamp) ORDER BY DATE_TRUNC('month', timestamp)
-	`
-	args = append(args, year)
-
-	rows, err := h.db.SQL.Query(query, args...)
+	response, err := h.db.GetActivityTimelineByYear(year)
 	if err != nil {
 		h.logger.Err(err).Error("failed to get activity timeline")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
 
-	var response []map[string]interface{}
-	for rows.Next() {
-		var date time.Time
-		var positive, negative, total int
-
-		err := rows.Scan(&date, &positive, &negative, &total)
-		if err != nil {
-			h.logger.Err(err).Error("failed to scan activity timeline row")
-			continue
-		}
-
-		response = append(response, map[string]interface{}{
-			"date":     date.Format("2006-01-02"),
-			"positive": positive,
-			"negative": negative,
-			"total":    total,
-		})
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 // HandleAPIPointsOverTime handles requests for points over time data
 func (h *Handler) HandleAPIPointsOverTime(w http.ResponseWriter, r *http.Request) {
-	year := 0
-	if yearStr := r.URL.Query().Get("year"); yearStr != "" {
-		if parsed, err := strconv.Atoi(yearStr); err == nil {
-			year = parsed
-		}
+	year, err := parseOptionalYear(r)
+	if err != nil {
+		http.Error(w, "Invalid year", http.StatusBadRequest)
+		return
 	}
 
-	var query string
-	var args []interface{}
-
-	if year > 0 {
-		query = `
-			SELECT
-				EXTRACT(MONTH FROM timestamp) as month,
-				SUM(points) as totalPoints
-			FROM karma_transactions
-			WHERE EXTRACT(YEAR FROM timestamp) = $1
-			GROUP BY EXTRACT(MONTH FROM timestamp)
-			ORDER BY month
-		`
-		args = append(args, year)
-	} else {
-		query = `
-			SELECT
-				EXTRACT(MONTH FROM timestamp) as month,
-				SUM(points) as totalPoints
-			FROM karma_transactions
-			GROUP BY EXTRACT(MONTH FROM timestamp)
-			ORDER BY month
-		`
-	}
-
-	rows, err := h.db.SQL.Query(query, args...)
+	response, err := h.db.GetPointsOverTimeMonthlyByYear(year)
 	if err != nil {
 		h.logger.Err(err).Error("failed to get points over time")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
 
-	var response []map[string]interface{}
-	for rows.Next() {
-		var month int
-		var totalPoints int
-
-		err := rows.Scan(&month, &totalPoints)
-		if err != nil {
-			h.logger.Err(err).Error("failed to scan points over time row")
-			continue
-		}
-
-		response = append(response, map[string]interface{}{
-			"month":       month,
-			"totalPoints": totalPoints,
-		})
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 // HandleAPIPopularMessages handles requests for popular messages with reactions
 func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Request) {
-	limit := 15
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil {
-			limit = parsed
+	query, err := parsePopularMessagesQuery(r)
+	if err != nil {
+		if err == errInvalidYear {
+			http.Error(w, "Invalid year", http.StatusBadRequest)
+			return
 		}
-	}
-	if limit < 1 {
-		limit = 1
-	}
-	if limit > 15 {
-		limit = 15
+		http.Error(w, "Invalid user parameter", http.StatusBadRequest)
+		return
 	}
 
-	offset := 0
-	if o := r.URL.Query().Get("offset"); o != "" {
-		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
-			offset = parsed
-		}
-	}
-
-	year := 0
-	if yearStr := r.URL.Query().Get("year"); yearStr != "" {
-		if parsed, err := strconv.Atoi(yearStr); err == nil {
-			year = parsed
-		}
-	}
-
-	filterUser := r.URL.Query().Get("user")
-	minReactions := 0
-	if mr := r.URL.Query().Get("min_reactions"); mr != "" {
-		if parsed, err := strconv.Atoi(mr); err == nil {
-			minReactions = parsed
-		}
-	}
-	mediaOnly := r.URL.Query().Get("has_media") == "1"
-	funnyBias := r.URL.Query().Get("funny_bias") == "1"
-	includeMeta := r.URL.Query().Get("include_meta") == "1"
-
-	// Fetch extra because we filter and paginate in-memory.
-	fetchLimit := (offset + limit) * 10
-	minFetch := 500
-	if filterUser != "" {
-		minFetch = 2000
-	}
-	if fetchLimit < minFetch {
-		fetchLimit = minFetch
-	}
-	if fetchLimit > 5000 {
-		fetchLimit = 5000
-	}
-
-	var messages []*database.PopularMessage
-	var err error
-	if filterUser != "" {
-		messages, err = h.db.GetPopularMessagesByUser(fetchLimit, year, filterUser, funnyBias)
-	} else {
-		messages, err = h.db.GetPopularMessages(fetchLimit, year, funnyBias)
-	}
+	result, err := h.buildPopularMessagesResult(*query)
 	if err != nil {
 		h.logger.Err(err).Error("failed to get popular messages")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	// For each message, get the Slack permalink and message text
-	type popularEntry struct {
-		data          map[string]interface{}
-		reactionCount int
-	}
-	entries := make([]popularEntry, 0, len(messages))
-	skippedMissing := 0
-	enqueuedBackfill := 0
-	skippedReplies := 0
-	skippedTestChannels := 0
-	skippedIgnored := 0
-	for _, msg := range messages {
-		msgData := map[string]interface{}{
-			"channel_id":     msg.ChannelID,
-			"message_id":     msg.MessageID,
-			"reaction_count": msg.ReactionCount,
-		}
-
-		// Get channel_id if missing (fallback to search)
-		channelID := ""
-		if msg.ChannelID != nil && *msg.ChannelID != "" {
-			channelID = *msg.ChannelID
-		}
-
-		// Check cached message details first to avoid Slack API calls
-		hasText := false
-		hasPermalink := false
-		hasAuthor := false
-		imageKnown := false
-		attachmentKnown := false
-		reactionKnown := false
-		detailsFetched := false
-		detailsFetchedKnown := false
-		if cached, err := h.db.GetPopularMessageDetails(msg.MessageID); err == nil && cached != nil {
-			if cached.ChannelID != nil && channelID == "" {
-				channelID = *cached.ChannelID
-				msgData["channel_id"] = cached.ChannelID
-			}
-			if cached.Text != nil && *cached.Text != "" {
-				msgData["text"] = *cached.Text
-				hasText = true
-			}
-			if cached.Permalink != nil && *cached.Permalink != "" {
-				msgData["permalink"] = *cached.Permalink
-				hasPermalink = true
-			}
-			if cached.AuthorName != nil && *cached.AuthorName != "" {
-				msgData["author_name"] = *cached.AuthorName
-				hasAuthor = true
-			}
-			if cached.AuthorAvatar != nil && *cached.AuthorAvatar != "" {
-				msgData["author_avatar"] = *cached.AuthorAvatar
-				hasAuthor = true
-			}
-			if cached.ImageURL != nil {
-				imageKnown = true
-				if *cached.ImageURL != "" {
-					msgData["image_url"] = *cached.ImageURL
-				}
-			}
-			if cached.AttachmentURL != nil && *cached.AttachmentURL != "" {
-				msgData["attachment_url"] = *cached.AttachmentURL
-			}
-			if cached.AttachmentURL != nil {
-				attachmentKnown = true
-				if cached.AttachmentMime != nil && *cached.AttachmentMime != "" {
-					msgData["attachment_mime"] = *cached.AttachmentMime
-				}
-			}
-			if cached.ImageURL == nil && cached.AttachmentURL == nil && cached.AttachmentMime == nil {
-				imageKnown = true
-				attachmentKnown = true
-			}
-			if cached.ReactionCount != nil {
-				reactionKnown = true
-				cachedCount := *cached.ReactionCount
-				if cachedCount < msg.ReactionCount {
-					cachedCount = msg.ReactionCount
-				}
-				msgData["reaction_count"] = cachedCount
-			}
-			if cached.IsReply != nil && *cached.IsReply {
-				skippedReplies++
-				continue
-			}
-			if cached.IsIgnored != nil && *cached.IsIgnored {
-				skippedIgnored++
-				continue
-			}
-			if cached.DetailsFetched != nil {
-				detailsFetchedKnown = true
-				detailsFetched = *cached.DetailsFetched
-			}
-		} else if err != nil {
-			h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to read popular message cache")
-		}
-
-		if channelID == "" {
-			if storedChannelID, err := h.db.GetChannelIDForMessage(msg.MessageID); err == nil && storedChannelID != nil {
-				channelID = *storedChannelID
-				msgData["channel_id"] = storedChannelID
-			} else if err != nil {
-				h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to resolve channel_id from transactions")
-			}
-		}
-
-		if strings.HasPrefix(channelID, "TEST") {
-			skippedTestChannels++
-			continue
-		}
-
-		if !hasAuthor {
-			if derivedAuthor, err := h.db.GetMessageAuthorByMessageID(msg.MessageID); err == nil && derivedAuthor != nil {
-				msgData["author_name"] = *derivedAuthor
-				hasAuthor = true
-				if err := h.db.UpsertPopularMessageDetails(msg.MessageID, nil, nil, nil, nil, derivedAuthor, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
-					h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to cache derived author")
-				}
-			} else if err != nil {
-				h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to derive author from transactions")
-			}
-		}
-
-		if channelID != "" {
-			cachedChannelID := channelID
-			if err := h.db.UpsertPopularMessageDetails(msg.MessageID, &cachedChannelID, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
-				h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to update popular message cache")
-			}
-		}
-
-		completeDetails := hasText && hasPermalink && hasAuthor && imageKnown && attachmentKnown && reactionKnown
-		if !detailsFetchedKnown && completeDetails {
-			detailsFetched = true
-			detailsFetchedKnown = true
-			if err := h.db.UpsertPopularMessageDetails(msg.MessageID, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &detailsFetched); err != nil {
-				h.logger.Err(err).KV("message_id", msg.MessageID).Error("failed to mark popular message details fetched")
-			}
-		}
-		missingDetails := !detailsFetchedKnown || !detailsFetched
-		if missingDetails {
-			h.enqueuePopularMessageBackfill(msg.MessageID, channelID)
-			enqueuedBackfill++
-			skippedMissing++
-			if position := h.popularBackfillQueuePosition(msg.MessageID); position > 0 {
-				msgData["queue_position"] = position
-			}
-		}
-		msgData["pending_details"] = missingDetails
-		reactionCount := msg.ReactionCount
-		if cachedCount, ok := msgData["reaction_count"].(int); ok {
-			reactionCount = cachedCount
-		}
-		if filterUser != "" {
-			author, _ := msgData["author_name"].(string)
-			if author != filterUser {
-				continue
-			}
-		}
-		if minReactions > 0 && reactionCount < minReactions {
-			continue
-		}
-		if mediaOnly {
-			_, hasImage := msgData["image_url"]
-			_, hasAttachment := msgData["attachment_url"]
-			if !hasImage && !hasAttachment {
-				continue
-			}
-		}
-
-		entries = append(entries, popularEntry{
-			data:          msgData,
-			reactionCount: reactionCount,
-		})
-	}
-
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].reactionCount > entries[j].reactionCount
-	})
-	total := len(entries)
-	if mediaOnly {
-		if dbTotal, err := h.db.GetPopularMessageCountWithMedia(year, filterUser, minReactions, funnyBias); err == nil {
-			total = dbTotal
-		} else {
-			h.logger.Err(err).Error("failed to get popular message count")
-		}
-	} else {
-		if dbTotal, err := h.db.GetPopularMessageCount(year, filterUser, minReactions, funnyBias); err == nil {
-			total = dbTotal
-		} else {
-			h.logger.Err(err).Error("failed to get popular message count")
-		}
-	}
-	available := len(entries)
-	start := offset
-	if start > available {
-		start = available
-	}
-	end := start + limit
-	if end > available {
-		end = available
-	}
-	sliced := entries[start:end]
-
-	response := make([]map[string]interface{}, 0, len(sliced))
-	for _, entry := range sliced {
-		response = append(response, entry.data)
-	}
-
-	queuePosition := 0
-	for _, entry := range sliced {
-		pending, _ := entry.data["pending_details"].(bool)
-		if !pending {
-			continue
-		}
-		position, _ := entry.data["queue_position"].(int)
-		if position == 0 {
-			messageID, _ := entry.data["message_id"].(string)
-			if messageID == "" {
-				continue
-			}
-			position = h.popularBackfillQueuePosition(messageID)
-		}
-		if position == 0 {
-			continue
-		}
-		if queuePosition == 0 || position < queuePosition {
-			queuePosition = position
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if includeMeta {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"items":   response,
-			"total":   total,
-			"limit":   limit,
-			"offset":  offset,
-			"pending": skippedMissing,
-			"queue_size": h.popularBackfillQueueSize(),
-			"queue_position": queuePosition,
-			"funny_bias": funnyBias,
+	if query.IncludeMeta {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"items":          result.Items,
+			"total":          result.Total,
+			"limit":          query.Limit,
+			"offset":         query.Offset,
+			"pending":        result.Pending,
+			"queue_size":     h.popularBackfillQueueSize(),
+			"queue_position": result.QueuePosition,
+			"funny_bias":     query.FunnyBias,
 		})
 	} else {
-		json.NewEncoder(w).Encode(response)
+		writeJSON(w, http.StatusOK, result.Items)
 	}
-	logEvent := h.logger.KV("returned", len(response)).KV("requested", limit).KV("total", total).KV("offset", offset).KV("skipped_missing", skippedMissing).KV("skipped_replies", skippedReplies).KV("skipped_ignored", skippedIgnored).KV("skipped_test_channels", skippedTestChannels).KV("backfill_enqueued", enqueuedBackfill)
+	logEvent := h.logger.KV("returned", len(result.Items)).KV("requested", query.Limit).KV("total", result.Total).KV("offset", query.Offset).KV("skipped_missing", result.Pending).KV("skipped_replies", result.SkippedReplies).KV("skipped_ignored", result.SkippedIgnored).KV("skipped_test_channels", result.SkippedTestChannels).KV("backfill_enqueued", result.BackfillEnqueued)
 	if failures := h.popPopularBackfillFailures(); failures != nil {
 		logEvent = logEvent.KV("backfill_failures", failures)
 	}

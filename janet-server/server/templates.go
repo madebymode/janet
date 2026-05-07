@@ -17,14 +17,14 @@ type TemplateData struct {
 	Error     string
 }
 
-// setupTemplates loads and parses HTML templates from embedded filesystem  
+// setupTemplates loads and parses HTML templates from embedded filesystem
 func (s *Server) setupTemplates() error {
 	s.templates = make(map[string]*template.Template)
 
 	// Load templates from embedded filesystem
 	templateFiles := []string{
 		"web/templates/app.html",
-		"web/templates/index.html", 
+		"web/templates/index.html",
 		"web/templates/leaderboard.html",
 		"web/templates/stats.html",
 	}

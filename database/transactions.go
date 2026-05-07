@@ -405,6 +405,133 @@ func (ts *TransactionService) GetTransactionsByUserCumulative(username string) (
 	return ts.GetTransactionsByUser(username, 0) // 0 means all-time/cumulative
 }
 
+func (ts *TransactionService) GetUserMonthlyPointsByYear(username string, year int) ([]*MonthlyPoints, error) {
+	rows, err := ts.db.SQL.Query(`
+		SELECT month, total_points
+		FROM user_summary_monthly
+		WHERE username = $1 AND year = $2
+		ORDER BY month
+	`, username, year)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []*MonthlyPoints
+	for rows.Next() {
+		point := &MonthlyPoints{}
+		if err := rows.Scan(&point.Month, &point.TotalPoints); err != nil {
+			return nil, err
+		}
+		results = append(results, point)
+	}
+
+	return results, rows.Err()
+}
+
+func (ts *TransactionService) GetUserYearlyPoints(username string) ([]*YearlyPoints, error) {
+	rows, err := ts.db.SQL.Query(`
+		SELECT EXTRACT(YEAR FROM timestamp) as year, SUM(points) as total_points
+		FROM karma_transactions
+		WHERE to_user = $1
+		GROUP BY EXTRACT(YEAR FROM timestamp)
+		ORDER BY year
+	`, username)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []*YearlyPoints
+	for rows.Next() {
+		point := &YearlyPoints{}
+		if err := rows.Scan(&point.Year, &point.TotalPoints); err != nil {
+			return nil, err
+		}
+		results = append(results, point)
+	}
+
+	return results, rows.Err()
+}
+
+func (ts *TransactionService) GetRecentActivityPage(filter RecentActivityFilter) (*RecentActivityPage, error) {
+	if filter.Limit <= 0 {
+		filter.Limit = 20
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+
+	baseArgs := make([]interface{}, 0, 4)
+	conditions := make([]string, 0, 3)
+
+	if filter.Year > 0 {
+		baseArgs = append(baseArgs, filter.Year)
+		conditions = append(conditions, "year = $"+strconv.Itoa(len(baseArgs)))
+	}
+	if filter.FromUser != "" {
+		baseArgs = append(baseArgs, "%"+filter.FromUser+"%")
+		conditions = append(conditions, "from_user ILIKE $"+strconv.Itoa(len(baseArgs)))
+	}
+	if filter.ToUser != "" {
+		baseArgs = append(baseArgs, "%"+filter.ToUser+"%")
+		conditions = append(conditions, "to_user ILIKE $"+strconv.Itoa(len(baseArgs)))
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	queryArgs := append([]interface{}{}, baseArgs...)
+	queryArgs = append(queryArgs, filter.Limit, filter.Offset)
+	query := `
+		SELECT from_user, to_user, points, reason, transaction_type, emoji_name, channel_id, message_id, timestamp, year
+		FROM karma_transactions` + whereClause + `
+		ORDER BY timestamp DESC
+		LIMIT $` + strconv.Itoa(len(baseArgs)+1) + ` OFFSET $` + strconv.Itoa(len(baseArgs)+2)
+
+	rows, err := ts.db.SQL.Query(query, queryArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var activities []*Transaction
+	for rows.Next() {
+		tx := &Transaction{}
+		if err := rows.Scan(
+			&tx.FromUser,
+			&tx.ToUser,
+			&tx.Points,
+			&tx.Reason,
+			&tx.TransactionType,
+			&tx.EmojiName,
+			&tx.ChannelID,
+			&tx.MessageID,
+			&tx.Timestamp,
+			&tx.Year,
+		); err != nil {
+			return nil, err
+		}
+		activities = append(activities, tx)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	countQuery := `SELECT COUNT(*) FROM karma_transactions` + whereClause
+	var totalCount int
+	if err := ts.db.SQL.QueryRow(countQuery, baseArgs...).Scan(&totalCount); err != nil {
+		return nil, err
+	}
+
+	return &RecentActivityPage{
+		Activities: activities,
+		TotalCount: totalCount,
+	}, nil
+}
+
 // Transaction count methods
 func (ts *TransactionService) GetTotalTransactionsByCurrentYear() (int, error) {
 	return ts.GetTotalTransactionsByYear(ts.getCurrentYear())
@@ -442,8 +569,8 @@ func (ts *TransactionService) GetNegativeTransactionsCumulative() (int, error) {
 	return ts.GetNegativeTransactionsByYear(0) // 0 means all-time/cumulative
 }
 
-	// GetPopularMessages returns messages with the most reactions
-	// Excludes 'bangbang' reactions and prioritizes messages with 'joy' emoji reactions (funny posts)
+// GetPopularMessages returns messages with the most reactions
+// Excludes 'bangbang' reactions and prioritizes messages with 'joy' emoji reactions (funny posts)
 func (ts *TransactionService) GetPopularMessages(limit int, year int, funnyBias bool) ([]*PopularMessage, error) {
 	return ts.getPopularMessages(limit, year, "", funnyBias)
 }

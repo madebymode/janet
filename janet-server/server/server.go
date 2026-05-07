@@ -14,10 +14,10 @@ import (
 	"github.com/aybabtme/log"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
-	"github.com/slack-go/slack"
-	"github.com/slack-go/slack/socketmode"
 	"github.com/troyxmccall/janet"
 	"github.com/troyxmccall/janet/database"
+	janetruntime "github.com/troyxmccall/janet/internal/runtime"
+	"github.com/troyxmccall/janet/janet-server/handlers"
 )
 
 // HandlerService interface for API handlers
@@ -147,8 +147,12 @@ func (s *Server) Start() error {
 	s.logger.KV("addr", s.config.WebListenAddr).Info("starting web server")
 
 	server := &http.Server{
-		Addr:    s.config.WebListenAddr,
-		Handler: s.router,
+		Addr:              s.config.WebListenAddr,
+		Handler:           s.router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	// Start server in goroutine
@@ -169,65 +173,42 @@ func (s *Server) Start() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	return server.Shutdown(ctx)
+	err := server.Shutdown(ctx)
+	if s.db != nil {
+		_ = s.db.Close()
+	}
+	return err
 }
 
 // initializeBot initializes the Slack bot if enabled
 func (s *Server) initializeBot() error {
-	slackClient := slack.New(s.config.SlackToken, slack.OptionDebug(s.config.Debug), slack.OptionAppLevelToken(s.config.SlackSocketToken))
-	socketClient := socketmode.New(slackClient, socketmode.OptionDebug(s.config.Debug))
-
-	// Convert config to janet format
-	blacklistMap := make(janet.StringList)
-	for _, user := range s.config.UserBlacklist {
-		blacklistMap[user] = struct{}{}
-	}
-
-	userAliases := make(janet.UserAliases)
-	for alias, main := range s.config.UserAliases {
-		userAliases[alias] = main
-	}
-
-	reactjiConfig := &janet.ReactjiConfig{
-		Enabled:      s.config.ReactjiEnabled,
-		UpVote:       janet.StringList{"thumbsup": struct{}{}, "+1": struct{}{}},
-		DownVote:     janet.StringList{"thumbsdown": struct{}{}, "-1": struct{}{}},
-		RepeatPoints: janet.StringList{"bangbang": struct{}{}},
-	}
-
-	botConfig := &janet.Config{
-		Slack:               &janet.SlackChatService{slackClient},
-		SlackWebClient:      slackClient,
-		Debug:               s.config.Debug,
+	runtime, err := janetruntime.NewSlackBotRuntime(janetruntime.BotOptions{
+		SlackToken:          s.config.SlackToken,
+		SlackSocketToken:    s.config.SlackSocketToken,
+		GoodPlaceJudgeBotID: s.config.GoodPlaceJudgeBotID,
 		MaxPoints:           s.config.MaxPoints,
 		LeaderboardLimit:    s.config.LeaderboardLimit,
-		Log:                 s.logger.KV("component", "bot"),
-		DB:                  s.db,
-		UserBlacklist:       blacklistMap,
-		Reactji:             reactjiConfig,
-		Motivate:            s.config.Motivate,
-		Aliases:             userAliases,
-		SelfPoints:          s.config.SelfKarma,
 		ReplyType:           s.config.ReplyType,
-		GoodPlaceJudgeBotID: s.config.GoodPlaceJudgeBotID,
-		GoodPersonality: janet.BotPersonality{
-			Username: s.config.GoodJanetUsername,
-			IconURL:  s.config.GoodJanetIconURL,
-			IsGood:   true,
-		},
-		BadPersonality: janet.BotPersonality{
-			Username: s.config.BadJanetUsername,
-			IconURL:  s.config.BadJanetIconURL,
-			IsGood:   false,
-		},
+		Debug:               s.config.Debug,
+		SelfKarma:           s.config.SelfKarma,
+		Motivate:            s.config.Motivate,
+		ReactjiEnabled:      s.config.ReactjiEnabled,
+		GoodJanetUsername:   s.config.GoodJanetUsername,
+		GoodJanetIconURL:    s.config.GoodJanetIconURL,
+		BadJanetUsername:    s.config.BadJanetUsername,
+		BadJanetIconURL:     s.config.BadJanetIconURL,
+		UserBlacklist:       s.config.UserBlacklist,
+		UserAliases:         s.config.UserAliases,
+	}, s.db, s.logger)
+	if err != nil {
+		return err
 	}
-
-	s.bot = janet.New(botConfig)
+	s.bot = runtime.Bot
 
 	// Start bot in goroutine
 	go func() {
 		s.logger.Info("starting slack bot")
-		s.bot.ListenWithSocketMode(socketClient)
+		s.bot.ListenWithSocketMode(runtime.SocketClient)
 	}()
 
 	return nil
@@ -266,7 +247,7 @@ func resetSequences(db *database.V2DB) error {
 }
 
 // GetDB returns the database instance
-func (s *Server) GetDB() *database.V2DB {
+func (s *Server) GetDB() handlers.DataStore {
 	return s.db
 }
 

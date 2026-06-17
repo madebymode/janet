@@ -16,6 +16,7 @@ LICENSE
 
 # Node modules (will be rebuilt in container)
 node_modules
+**/node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

@@ -1,11 +1,11 @@
 # Build stage for React app
-FROM node:18-alpine AS react_builder
+FROM node:22-alpine AS react_builder
 
 WORKDIR /app/janet-server/web-react
 
 # Install dependencies first (better caching)
 COPY janet-server/web-react/package*.json ./
-RUN npm ci
+RUN npm ci --include=optional
 
 # Copy source and build
 COPY janet-server/web-react/ .

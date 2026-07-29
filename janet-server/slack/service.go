@@ -22,18 +22,20 @@ type slackClient interface {
 
 // Service handles Slack integration operations.
 type Service struct {
-	bot            *janet.Bot
-	slackClient    slackClient
-	channelCache   []goslack.Channel
-	cacheFetchedAt time.Time
-	messageCache   map[string]messageCacheEntry
-	messageCacheMu sync.RWMutex
-	userCache      map[string]goslack.User
-	userCacheMu    sync.RWMutex
-	attachmentsDir string
-	attachmentsURL string
-	slackToken     string
-	logger         *log.Log
+	bot                *janet.Bot
+	slackClient        slackClient
+	channelCache       []goslack.Channel
+	cacheFetchedAt     time.Time
+	messageCache       map[string]messageCacheEntry
+	messageCacheMu     sync.RWMutex
+	userCache          map[string]goslack.User
+	userCacheMu        sync.RWMutex
+	userCacheFetchedAt time.Time
+	userCacheRefreshMu sync.Mutex
+	attachmentsDir     string
+	attachmentsURL     string
+	slackToken         string
+	logger             *log.Log
 }
 
 // ServiceOptions controls Slack metadata enrichment behavior.

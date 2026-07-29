@@ -9,6 +9,8 @@ import (
 	"github.com/troyxmccall/janet/database"
 )
 
+const slackUserCacheTTL = 5 * time.Minute
+
 // EnrichUsersWithSlackInfo enriches user summaries with Slack profile information.
 func (s *Service) EnrichUsersWithSlackInfo(users []*database.UserSummary) []*database.UserSummary {
 	for _, user := range users {
@@ -30,49 +32,97 @@ func (s *Service) EnrichUsersWithSlackInfo(users []*database.UserSummary) []*dat
 }
 
 func (s *Service) getSlackUserByUsername(username string) (*goslack.User, error) {
-	if strings.Contains(username, "@") || strings.Contains(username, "+++++") ||
-		strings.HasPrefix(username, "*") || strings.HasPrefix(username, "<") ||
-		strings.HasPrefix(username, ":") || strings.Contains(username, "http") {
+	if !isSafeUsernameLookup(username) {
 		return nil, fmt.Errorf("corrupted username: %s", username)
 	}
 
-	s.userCacheMu.RLock()
-	if cached, ok := s.userCache[username]; ok {
-		s.userCacheMu.RUnlock()
-		return &cached, nil
+	if cached, ok, fresh := s.getCachedSlackUserByUsername(username); ok && fresh {
+		return cached, nil
 	}
+
+	if err := s.refreshUserCache(); err != nil {
+		if cached, ok, _ := s.getCachedSlackUserByUsername(username); ok {
+			return cached, nil
+		}
+		return nil, err
+	}
+
+	if cached, ok, _ := s.getCachedSlackUserByUsername(username); ok {
+		return cached, nil
+	}
+
+	return nil, fmt.Errorf("user not found: %s", username)
+}
+
+func isSafeUsernameLookup(username string) bool {
+	return !strings.Contains(username, "@") && !strings.Contains(username, "+++++") &&
+		!strings.HasPrefix(username, "*") && !strings.HasPrefix(username, "<") &&
+		!strings.HasPrefix(username, ":") && !strings.Contains(username, "http")
+}
+
+func (s *Service) getCachedSlackUserByUsername(username string) (*goslack.User, bool, bool) {
+	normalized := strings.ToLower(username)
+
+	s.userCacheMu.RLock()
+	defer s.userCacheMu.RUnlock()
+
+	fresh := !s.userCacheFetchedAt.IsZero() && time.Since(s.userCacheFetchedAt) < slackUserCacheTTL
+	if cached, ok := s.userCache[username]; ok {
+		return &cached, true, fresh
+	}
+	if cached, ok := s.userCache[normalized]; ok {
+		return &cached, true, fresh
+	}
+
+	return nil, false, fresh
+}
+
+func (s *Service) refreshUserCache() error {
+	s.userCacheRefreshMu.Lock()
+	defer s.userCacheRefreshMu.Unlock()
+
+	s.userCacheMu.RLock()
+	fresh := !s.userCacheFetchedAt.IsZero() && time.Since(s.userCacheFetchedAt) < slackUserCacheTTL
 	s.userCacheMu.RUnlock()
+	if fresh {
+		return nil
+	}
 
 	client := s.client()
 	if client == nil {
-		return nil, fmt.Errorf("no slack client available")
+		return fmt.Errorf("no slack client available")
 	}
 
 	workspaceUsers, err := client.GetUsers()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	normalized := strings.ToLower(username)
-	s.userCacheMu.Lock()
-	defer s.userCacheMu.Unlock()
+	nextCache := make(map[string]goslack.User, len(workspaceUsers)*4)
 	for _, workspaceUser := range workspaceUsers {
-		s.userCache[workspaceUser.ID] = workspaceUser
-		s.userCache[workspaceUser.Name] = workspaceUser
-		if workspaceUser.Profile.DisplayName != "" {
-			s.userCache[strings.ToLower(workspaceUser.Profile.DisplayName)] = workspaceUser
-		}
-		s.userCache[strings.ToLower(workspaceUser.Name)] = workspaceUser
+		cacheSlackUser(nextCache, workspaceUser)
 	}
 
-	if cached, ok := s.userCache[normalized]; ok {
-		return &cached, nil
-	}
-	if cached, ok := s.userCache[username]; ok {
-		return &cached, nil
-	}
+	s.userCacheMu.Lock()
+	s.userCache = nextCache
+	s.userCacheFetchedAt = time.Now()
+	s.userCacheMu.Unlock()
 
-	return nil, fmt.Errorf("user not found: %s", username)
+	return nil
+}
+
+func cacheSlackUser(cache map[string]goslack.User, user goslack.User) {
+	if user.ID != "" {
+		cache[user.ID] = user
+	}
+	if user.Name != "" {
+		cache[user.Name] = user
+		cache[strings.ToLower(user.Name)] = user
+	}
+	if user.Profile.DisplayName != "" {
+		cache[user.Profile.DisplayName] = user
+		cache[strings.ToLower(user.Profile.DisplayName)] = user
+	}
 }
 
 func (s *Service) getUserInfoWithRetry(userID string) (*goslack.User, error) {

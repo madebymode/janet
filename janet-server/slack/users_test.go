@@ -15,6 +15,7 @@ var errUnexpectedSlackCall = errors.New("unexpected slack client call")
 type fakeSlackClient struct {
 	mu            sync.Mutex
 	userBatches   [][]goslack.User
+	getUsersErrs  []error
 	getUsersCalls int
 }
 
@@ -24,6 +25,15 @@ func (f *fakeSlackClient) GetUsers(...goslack.GetUsersOption) ([]goslack.User, e
 
 	callIndex := f.getUsersCalls
 	f.getUsersCalls++
+	if len(f.getUsersErrs) > 0 {
+		errIndex := callIndex
+		if errIndex >= len(f.getUsersErrs) {
+			errIndex = len(f.getUsersErrs) - 1
+		}
+		if f.getUsersErrs[errIndex] != nil {
+			return nil, f.getUsersErrs[errIndex]
+		}
+	}
 	if len(f.userBatches) == 0 {
 		return nil, nil
 	}
@@ -137,5 +147,31 @@ func TestEnrichUsersWithSlackInfoRefreshesExpiredUserCache(t *testing.T) {
 	}
 	if nextUsers[0].IsDeleted {
 		t.Fatal("expected bob to be found after cache refresh")
+	}
+}
+
+func TestEnrichUsersWithSlackInfoKeepsUsersActiveWhenSlackUnavailable(t *testing.T) {
+	client := &fakeSlackClient{
+		getUsersErrs: []error{errors.New("slack unavailable")},
+	}
+	svc := NewWebService(client, ServiceOptions{})
+
+	users := []*database.UserSummary{
+		{Username: "alice"},
+		{Username: "bob"},
+	}
+
+	svc.EnrichUsersWithSlackInfo(users)
+
+	if got := client.getUsersCallCount(); got != 1 {
+		t.Fatalf("expected one Slack users-list call, got %d", got)
+	}
+	for _, user := range users {
+		if user.IsDeleted {
+			t.Fatalf("expected %s to remain active when Slack is unavailable", user.Username)
+		}
+		if user.IsBot {
+			t.Fatalf("expected %s not to be marked as a bot when Slack is unavailable", user.Username)
+		}
 	}
 }

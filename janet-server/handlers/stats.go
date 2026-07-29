@@ -9,27 +9,46 @@ import (
 
 // HandleAPIStatsV2 handles requests for basic statistics (V2 API)
 func (h *Handler) HandleAPIStatsV2(w http.ResponseWriter, r *http.Request) {
-	year, _ := parseOptionalYear(r)
+	year, err := parseOptionalYear(r)
+	if err != nil {
+		http.Error(w, "Invalid year", http.StatusBadRequest)
+		return
+	}
 
 	var totalPoints int
 	if year == 0 {
-		totalPoints, _ = h.db.GetTotalPointsCumulative()
+		totalPoints, err = h.db.GetTotalPointsCumulative()
 	} else {
-		totalPoints, _ = h.db.GetTotalPointsByYear(year)
+		totalPoints, err = h.db.GetTotalPointsByYear(year)
+	}
+	if err != nil {
+		h.logger.Err(err).KV("year", year).Error("failed to get total points")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	var totalUsers int
 	if year == 0 {
-		totalUsers, _ = h.db.GetTotalUsersCumulative()
+		totalUsers, err = h.db.GetTotalUsersCumulative()
 	} else {
-		totalUsers, _ = h.db.GetTotalUsersByYear(year)
+		totalUsers, err = h.db.GetTotalUsersByYear(year)
+	}
+	if err != nil {
+		h.logger.Err(err).KV("year", year).Error("failed to get total users")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	var totalTransactions int
 	if year == 0 {
-		totalTransactions, _ = h.db.GetTotalTransactionsCumulative()
+		totalTransactions, err = h.db.GetTotalTransactionsCumulative()
 	} else {
-		totalTransactions, _ = h.db.GetTotalTransactionsByYear(year)
+		totalTransactions, err = h.db.GetTotalTransactionsByYear(year)
+	}
+	if err != nil {
+		h.logger.Err(err).KV("year", year).Error("failed to get total transactions")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	response := map[string]interface{}{
@@ -43,9 +62,12 @@ func (h *Handler) HandleAPIStatsV2(w http.ResponseWriter, r *http.Request) {
 
 // HandleAPIStatsDetailed handles requests for detailed statistics
 func (h *Handler) HandleAPIStatsDetailed(w http.ResponseWriter, r *http.Request) {
-	year, _ := parseOptionalYear(r)
+	year, err := parseOptionalYear(r)
+	if err != nil {
+		http.Error(w, "Invalid year", http.StatusBadRequest)
+		return
+	}
 
-	var err error
 	var totalUsers int
 	if year == 0 {
 		totalUsers, err = h.db.GetTotalUsersCumulative()
@@ -53,8 +75,9 @@ func (h *Handler) HandleAPIStatsDetailed(w http.ResponseWriter, r *http.Request)
 		totalUsers, err = h.db.GetTotalUsersByYear(year)
 	}
 	if err != nil {
-		h.logger.Err(err).Error("failed to get total users")
-		totalUsers = 0
+		h.logger.Err(err).KV("year", year).Error("failed to get total users")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	var totalPoints int
@@ -64,8 +87,9 @@ func (h *Handler) HandleAPIStatsDetailed(w http.ResponseWriter, r *http.Request)
 		totalPoints, err = h.db.GetTotalPointsByYear(year)
 	}
 	if err != nil {
-		h.logger.Err(err).Error("failed to get total points")
-		totalPoints = 0
+		h.logger.Err(err).KV("year", year).Error("failed to get total points")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	var totalTransactions int
@@ -75,8 +99,9 @@ func (h *Handler) HandleAPIStatsDetailed(w http.ResponseWriter, r *http.Request)
 		totalTransactions, err = h.db.GetTotalTransactionsByYear(year)
 	}
 	if err != nil {
-		h.logger.Err(err).Error("failed to get total transactions")
-		totalTransactions = 0
+		h.logger.Err(err).KV("year", year).Error("failed to get total transactions")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	var positiveTransactions int
@@ -86,8 +111,9 @@ func (h *Handler) HandleAPIStatsDetailed(w http.ResponseWriter, r *http.Request)
 		positiveTransactions, err = h.db.GetPositiveTransactionsByYear(year)
 	}
 	if err != nil {
-		h.logger.Err(err).Error("failed to get positive transactions")
-		positiveTransactions = 0
+		h.logger.Err(err).KV("year", year).Error("failed to get positive transactions")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	var negativeTransactions int
@@ -97,8 +123,9 @@ func (h *Handler) HandleAPIStatsDetailed(w http.ResponseWriter, r *http.Request)
 		negativeTransactions, err = h.db.GetNegativeTransactionsByYear(year)
 	}
 	if err != nil {
-		h.logger.Err(err).Error("failed to get negative transactions")
-		negativeTransactions = 0
+		h.logger.Err(err).KV("year", year).Error("failed to get negative transactions")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	var avgPointsPerUser float64

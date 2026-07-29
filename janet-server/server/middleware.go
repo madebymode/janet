@@ -173,10 +173,12 @@ func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
 				"error":       "rate_limited",
 				"retry_after": int(retryAfter.Seconds()),
-			})
+			}); err != nil {
+				s.logger.Err(err).KV("path", r.URL.Path).Error("failed to write rate limit response")
+			}
 			return
 		}
 

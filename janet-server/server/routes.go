@@ -96,7 +96,9 @@ func (s *Server) staticFileHandler() http.Handler {
 
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("Cache-Control", "public, max-age=3600")
-		_, _ = w.Write(content)
+		if _, err := w.Write(content); err != nil {
+			s.logger.Err(err).KV("path", filePath).Error("failed to write static file")
+		}
 	})
 }
 

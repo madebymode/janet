@@ -63,21 +63,30 @@ func (h *Handler) notePopularBackfillDrop() {
 		h.popularDropCount = 0
 		h.popularDropLastLog = now
 		h.popularDropMu.Unlock()
-		h.logger.KV("dropped", dropped).Info("popular backfill queue full")
+		h.logger.KV("dropped", dropped).Error("popular backfill queue full")
 		return
 	}
 	h.popularDropMu.Unlock()
 }
 
-func (h *Handler) notePopularBackfillFailure(reason string) {
+func (h *Handler) notePopularBackfillFailure(reason, messageID string, err error) {
 	h.popularFailMu.Lock()
 	h.popularFailCounts[reason]++
+	count := h.popularFailCounts[reason]
 	now := time.Now()
-	if now.Sub(h.popularFailLastLog) >= 30*time.Second {
-		h.popularFailMu.Unlock()
-		return
+	shouldLog := count == 1 || now.Sub(h.popularFailLastLog) >= 30*time.Second
+	if shouldLog {
+		h.popularFailLastLog = now
 	}
 	h.popularFailMu.Unlock()
+
+	if shouldLog {
+		logEvent := h.logger.KV("reason", reason).KV("message_id", messageID).KV("count", count)
+		if err != nil {
+			logEvent = logEvent.Err(err)
+		}
+		logEvent.Error("popular backfill failed")
+	}
 }
 
 func (h *Handler) notePopularQueueStatus() {
@@ -144,6 +153,8 @@ func (h *Handler) processPopularMessageBackfill(job popularBackfillJob) {
 			if !detailsFetchedKnown && hasText && hasPermalink && hasAuthor && imageKnown {
 				return
 			}
+		} else if err != nil {
+			h.logger.Err(err).KV("message_id", job.messageID).Error("failed to read popular message cache before backfill")
 		}
 	}
 
@@ -156,12 +167,12 @@ func (h *Handler) processPopularMessageBackfill(job popularBackfillJob) {
 					h.logger.Err(err).KV("message_id", job.messageID).KV("channel_id", found).Error("failed to cache channel_id to database")
 				}
 			} else {
-				h.notePopularBackfillFailure("search_author_timestamp_failed")
+				h.notePopularBackfillFailure("search_author_timestamp_failed", job.messageID, err)
 			}
 		} else if err != nil {
-			h.notePopularBackfillFailure("derive_author_failed")
+			h.notePopularBackfillFailure("derive_author_failed", job.messageID, err)
 		} else {
-			h.notePopularBackfillFailure("author_missing")
+			h.notePopularBackfillFailure("author_missing", job.messageID, nil)
 		}
 		if channelID == "" {
 			if found, err := h.slack.FindChannelByMessageID(job.messageID); err == nil {
@@ -170,7 +181,7 @@ func (h *Handler) processPopularMessageBackfill(job popularBackfillJob) {
 					h.logger.Err(err).KV("message_id", job.messageID).KV("channel_id", found).Error("failed to cache channel_id to database")
 				}
 			} else {
-				h.notePopularBackfillFailure("search_timestamp_failed")
+				h.notePopularBackfillFailure("search_timestamp_failed", job.messageID, err)
 				return
 			}
 		}
@@ -178,7 +189,7 @@ func (h *Handler) processPopularMessageBackfill(job popularBackfillJob) {
 
 	details, err := h.slack.GetMessageDetails(channelID, job.messageID)
 	if err != nil {
-		h.notePopularBackfillFailure("get_message_details_failed")
+		h.notePopularBackfillFailure("get_message_details_failed", job.messageID, err)
 		return
 	}
 

@@ -82,10 +82,12 @@ func LoadConfig(configPath string) (*Config, error) {
 
 	// Try to load from file if it exists
 	if configPath != "" {
-		if data, err := os.ReadFile(configPath); err == nil {
-			if err := json.Unmarshal(data, config); err != nil {
-				return nil, err
-			}
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read config file %q: %w", configPath, err)
+		}
+		if err := json.Unmarshal(data, config); err != nil {
+			return nil, err
 		}
 	}
 

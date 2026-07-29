@@ -443,9 +443,6 @@ func (b *Bot) handleBangBangPoints(ev *slack.ReactionAddedEvent) {
 		}
 	}
 
-	// Form response messages
-	_ = fmt.Sprintf("bc %s added a :bangbang: emoji \n", reactorUsername)
-
 	if len(goodJanetResponse.String()) > 0 {
 		responseMsg := goodJanetResponse.String()
 

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	stdlog "log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,7 +17,9 @@ const (
 func writeJSON(w http.ResponseWriter, status int, value interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		stdlog.Printf("failed to write JSON response: %v", err)
+	}
 }
 
 func parseOptionalYear(r *http.Request) (int, error) {

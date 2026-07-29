@@ -1,6 +1,9 @@
 package server
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestConfigNormalizeAppliesSafeDefaults(t *testing.T) {
 	cfg := &Config{
@@ -52,5 +55,13 @@ func TestConfigNormalizeRejectsBadReplyType(t *testing.T) {
 
 	if err := cfg.normalize(); err == nil {
 		t.Fatal("expected invalid reply type error")
+	}
+}
+
+func TestLoadConfigRejectsMissingExplicitConfig(t *testing.T) {
+	missingPath := filepath.Join(t.TempDir(), "missing.json")
+
+	if _, err := LoadConfig(missingPath); err == nil {
+		t.Fatal("expected missing config file error")
 	}
 }

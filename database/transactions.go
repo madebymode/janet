@@ -823,10 +823,8 @@ func (ts *TransactionService) UpdateChannelIDForMessage(messageID, channelID str
 		return err
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected > 0 {
-		// Log that we updated some rows (for debugging)
-		_ = rowsAffected
+	if _, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("failed to get channel_id update row count: %w", err)
 	}
 
 	return nil

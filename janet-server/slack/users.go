@@ -1,6 +1,7 @@
 package slack
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,9 +12,19 @@ import (
 
 const slackUserCacheTTL = 5 * time.Minute
 
+var (
+	errUnsafeUsernameLookup = errors.New("unsafe username")
+	errSlackUserNotFound    = errors.New("slack user not found")
+)
+
 // EnrichUsersWithSlackInfo enriches user summaries with Slack profile information.
 func (s *Service) EnrichUsersWithSlackInfo(users []*database.UserSummary) []*database.UserSummary {
+	var slackLookupErr error
 	for _, user := range users {
+		if slackLookupErr != nil {
+			continue
+		}
+
 		if slackUser, err := s.getSlackUserByUsername(user.Username); err == nil {
 			user.DisplayName = &slackUser.Profile.DisplayName
 			user.RealName = &slackUser.RealName
@@ -22,9 +33,14 @@ func (s *Service) EnrichUsersWithSlackInfo(users []*database.UserSummary) []*dat
 			}
 			user.IsBot = slackUser.IsBot
 			user.IsDeleted = slackUser.Deleted
-		} else {
+		} else if isUserLookupMiss(err) {
 			user.IsDeleted = true
 			user.IsBot = false
+		} else {
+			slackLookupErr = err
+			if s.logger != nil {
+				s.logger.Err(err).KV("username", user.Username).Error("failed to enrich users with Slack info")
+			}
 		}
 	}
 
@@ -33,7 +49,7 @@ func (s *Service) EnrichUsersWithSlackInfo(users []*database.UserSummary) []*dat
 
 func (s *Service) getSlackUserByUsername(username string) (*goslack.User, error) {
 	if !isSafeUsernameLookup(username) {
-		return nil, fmt.Errorf("corrupted username: %s", username)
+		return nil, fmt.Errorf("%w: %s", errUnsafeUsernameLookup, username)
 	}
 
 	if cached, ok, fresh := s.getCachedSlackUserByUsername(username); ok && fresh {
@@ -51,7 +67,11 @@ func (s *Service) getSlackUserByUsername(username string) (*goslack.User, error)
 		return cached, nil
 	}
 
-	return nil, fmt.Errorf("user not found: %s", username)
+	return nil, fmt.Errorf("%w: %s", errSlackUserNotFound, username)
+}
+
+func isUserLookupMiss(err error) bool {
+	return errors.Is(err, errUnsafeUsernameLookup) || errors.Is(err, errSlackUserNotFound)
 }
 
 func isSafeUsernameLookup(username string) bool {

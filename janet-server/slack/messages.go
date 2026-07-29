@@ -113,6 +113,8 @@ func (s *Service) GetMessageDetails(channelID, messageID string) (*MessageDetail
 		if user, err := s.getUserInfoWithRetry(message.User); err == nil {
 			details.AuthorName = user.Name
 			details.AuthorAvatar = user.Profile.Image72
+		} else if s.logger != nil {
+			s.logger.Err(err).KV("user_id", message.User).KV("message_id", messageID).Error("failed to enrich message author with Slack info")
 		}
 	} else if message.Username != "" {
 		details.AuthorName = message.Username

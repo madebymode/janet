@@ -191,6 +191,11 @@ CREATE TABLE IF NOT EXISTS user_summary_monthly
 )
   );
 
+CREATE INDEX IF NOT EXISTS idx_user_summary_current_total_points_desc ON user_summary_current(total_points DESC);
+CREATE INDEX IF NOT EXISTS idx_user_summary_current_points_given_desc ON user_summary_current(points_given DESC);
+CREATE INDEX IF NOT EXISTS idx_user_summary_yearly_year_total_points_desc ON user_summary_yearly(year, total_points DESC);
+CREATE INDEX IF NOT EXISTS idx_user_summary_yearly_year_points_given_desc ON user_summary_yearly(year, points_given DESC);
+
 -- Clean up invalid usernames (Slack special syntax like <!subteam^>, <@U...>, :emoji: patterns, etc.)
 -- Only keep usernames with alphanumeric characters, dots, underscores, and hyphens
 DELETE FROM karma_transactions

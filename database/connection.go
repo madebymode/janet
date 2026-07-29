@@ -66,7 +66,12 @@ func ensureSchema(conn *sql.DB) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_karma_transactions_dedupe_key
 			ON karma_transactions(dedupe_key) WHERE dedupe_key IS NOT NULL`,
 	}
+	statements = append(statements, summaryIndexStatements...)
 
+	return execSchemaStatements(conn, statements)
+}
+
+func execSchemaStatements(conn *sql.DB, statements []string) error {
 	for _, statement := range statements {
 		if _, err := conn.Exec(statement); err != nil {
 			return fmt.Errorf("failed to ensure database schema: %w", err)
@@ -74,6 +79,17 @@ func ensureSchema(conn *sql.DB) error {
 	}
 
 	return nil
+}
+
+var summaryIndexStatements = []string{
+	`CREATE INDEX IF NOT EXISTS idx_user_summary_current_total_points_desc
+		ON user_summary_current(total_points DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_user_summary_current_points_given_desc
+		ON user_summary_current(points_given DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_user_summary_yearly_year_total_points_desc
+		ON user_summary_yearly(year, total_points DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_user_summary_yearly_year_points_given_desc
+		ON user_summary_yearly(year, points_given DESC)`,
 }
 
 // Close closes the database connection

@@ -371,5 +371,9 @@ func (ss *SummaryService) RebuildSummaryTables() error {
 		return fmt.Errorf("failed to populate user_summary_monthly: %w", err)
 	}
 
+	if err := execSchemaStatements(ss.db.SQL, summaryIndexStatements); err != nil {
+		return fmt.Errorf("failed to create summary table indexes: %w", err)
+	}
+
 	return nil
 }

@@ -232,13 +232,13 @@ func (b *Bot) ListenWithSocketMode(client *socketmode.Client) {
 						}
 						b.handleReactionRemovedEvent(reactionEvent)
 					default:
-						b.Config.Log.Info("unsupported events API event received")
+						b.Config.Log.KV("event_type", innerEvent.Type).Info("unsupported events API event received")
 					}
 				default:
-					b.Config.Log.Info("unsupported events API event received")
+					b.Config.Log.KV("event_type", eventsAPIEvent.Type).Info("unsupported events API event received")
 				}
 			default:
-				b.Config.Log.Info("unexpected event type received")
+				b.Config.Log.KV("event_type", string(evt.Type)).Info("unexpected socket mode event type received")
 			}
 		}
 	}()

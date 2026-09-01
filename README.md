@@ -102,6 +102,31 @@ docker-compose.production.yml  Production-style stack
 - Optional Slack user token for richer web enrichment and backfill behavior
 - Docker and Docker Compose for containerized setup
 
+## Slack App Configuration
+
+Janet uses Slack Socket Mode, so the Slack app must have Socket Mode enabled and an app-level token (`xapp-...`) with `connections:write`.
+
+The bot token (`xoxb-...`) needs these Bot Token Scopes:
+
+- `app_mentions:read`
+- `channels:history`
+- `channels:read`
+- `chat:write`
+- `groups:history`
+- `groups:read`
+- `reactions:read`
+- `users:read`
+
+The Slack app must also subscribe to these Bot User Events:
+
+- `app_mention`
+- `message.channels`
+- `message.groups`
+- `reaction_added`
+- `reaction_removed`
+
+Private-channel support specifically depends on `groups:history`, `groups:read`, and the `message.groups` bot event. After adding or changing Slack scopes, reinstall the app to the workspace so Slack issues a token with the new grants.
+
 ## Environment Variables
 
 Copy `.env.example` to `.env` and fill in the values you actually use.

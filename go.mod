@@ -4,7 +4,7 @@ go 1.25
 
 require (
 	github.com/aybabtme/log v0.0.0-20170418131122-ba6ae9871c28
-	github.com/dustin/go-humanize v1.0.1
+	github.com/dustin/go-humanize v1.1.0
 	github.com/gorilla/mux v1.8.1
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.12.3

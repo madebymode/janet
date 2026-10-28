@@ -8,7 +8,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.12.3
-	github.com/slack-go/slack v0.30.1
+	github.com/slack-go/slack v0.32.0
 )
 
 require (

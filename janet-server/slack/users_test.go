@@ -59,7 +59,7 @@ func (f *fakeSlackClient) GetConversationHistory(*goslack.GetConversationHistory
 	return nil, errUnexpectedSlackCall
 }
 
-func (f *fakeSlackClient) GetUserInfo(string) (*goslack.User, error) {
+func (f *fakeSlackClient) GetUserInfo(string, ...goslack.GetUserInfoOption) (*goslack.User, error) {
 	return nil, errUnexpectedSlackCall
 }
 

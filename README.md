@@ -95,7 +95,7 @@ docker-compose.production.yml  Production-style stack
 
 ## Requirements
 
-- Go 1.25+
+- Go 1.27+
 - Node 18+ if you want to rebuild the React app
 - PostgreSQL 17+
 - Slack bot token and app-level Socket Mode token

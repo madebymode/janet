@@ -1,6 +1,6 @@
 module github.com/troyxmccall/janet
 
-go 1.26
+go 1.27
 
 require (
 	github.com/aybabtme/log v0.0.0-20170418131122-ba6ae9871c28

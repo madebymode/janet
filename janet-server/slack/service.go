@@ -15,7 +15,7 @@ type slackClient interface {
 	GetUsers(...goslack.GetUsersOption) ([]goslack.User, error)
 	GetPermalink(params *goslack.PermalinkParameters) (string, error)
 	GetConversationHistory(params *goslack.GetConversationHistoryParameters) (*goslack.GetConversationHistoryResponse, error)
-	GetUserInfo(user string) (*goslack.User, error)
+	GetUserInfo(user string, options ...goslack.GetUserInfoOption) (*goslack.User, error)
 	GetConversations(params *goslack.GetConversationsParameters) ([]goslack.Channel, string, error)
 	SearchMessages(query string, params goslack.SearchParameters) (*goslack.SearchMessages, error)
 }

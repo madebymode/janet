@@ -6,7 +6,9 @@ const getEmojiFromName = (emojiName) => {
     'joy': '😂', '100': '💯', 'heart': '❤️', 'lol': '😂', '+1': '👍', 'skull': '💀',
     'sparkles': '✨', 'yellow_heart': '💛', '-1': '👎', 'fire': '🔥', 'clap': '👏',
     'eyes': '👀', 'thumbsup': '👍', 'thumbsdown': '👎', 'ok_hand': '👌', 'wave': '👋',
-    'raised_hands': '🙌', 'party': '🎉', 'tada': '🎉', 'star': '⭐', 'rocket': '🚀'
+    'raised_hands': '🙌', 'party': '🎉', 'tada': '🎉', 'star': '⭐', 'rocket': '🚀',
+    'bangbang': '‼️', 'exclamation': '❗', 'grey_exclamation': '❕', 'question': '❓',
+    'grey_question': '❔', 'interrobang': '⁉️'
   }
   return emojiMap[emojiName] || emojiName || '😀'
 }

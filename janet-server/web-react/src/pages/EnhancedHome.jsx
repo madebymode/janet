@@ -23,7 +23,9 @@ const getEmojiFromName = (emojiName) => {
     'wave': '👋',
     'raised_hands': '🙌',
     'party': '🎉',
-    'tada': '🎉'
+    'tada': '🎉',
+    'bangbang': '‼️', 'exclamation': '❗', 'grey_exclamation': '❕', 'question': '❓',
+    'grey_question': '❔', 'interrobang': '⁉️'
   }
   return emojiMap[emojiName] || emojiName
 }

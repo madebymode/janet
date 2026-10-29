@@ -36,6 +36,35 @@ func (db *V2DB) legacyService() *LegacyService {
 	return NewLegacyService(db)
 }
 
+func (db *V2DB) factsService() *FactsService {
+	return NewFactsService(db)
+}
+
+// FactsRepository implementation
+func (db *V2DB) GetKarmaColluders(limit, year int) ([]*KarmaColluder, error) {
+	return db.factsService().GetKarmaColluders(limit, year)
+}
+
+func (db *V2DB) GetFunFacts(year int) (*FunFacts, error) {
+	return db.factsService().GetFunFacts(year)
+}
+
+func (db *V2DB) GetKarmaColludersByYearMonth(limit, year, month int) ([]*KarmaColluder, error) {
+	return db.factsService().GetKarmaColludersByYearMonth(limit, year, month)
+}
+
+func (db *V2DB) GetFunFactsByYearMonth(year, month int) (*FunFacts, error) {
+	return db.factsService().GetFunFactsByYearMonth(year, month)
+}
+
+func (db *V2DB) GetUserTopChannels(username string, year, month, limit int) ([]*ChannelStats, error) {
+	return db.factsService().GetUserTopChannels(username, year, month, limit)
+}
+
+func (db *V2DB) GetUserColluders(username string, limit, year, month int) ([]*KarmaColluder, error) {
+	return db.factsService().GetUserColluders(username, limit, year, month)
+}
+
 // TransactionRepository implementation
 func (db *V2DB) InsertTransaction(tx *Transaction) error {
 	return db.transactionService().InsertTransaction(tx)
@@ -136,6 +165,18 @@ func (db *V2DB) GetNegativeTransactionsCumulative() (int, error) {
 	return db.transactionService().GetNegativeTransactionsCumulative()
 }
 
+func (db *V2DB) GetTotalTransactionsByYearMonth(year, month int) (int, error) {
+	return db.transactionService().GetTotalTransactionsByYearMonth(year, month)
+}
+
+func (db *V2DB) GetPositiveTransactionsByYearMonth(year, month int) (int, error) {
+	return db.transactionService().GetPositiveTransactionsByYearMonth(year, month)
+}
+
+func (db *V2DB) GetNegativeTransactionsByYearMonth(year, month int) (int, error) {
+	return db.transactionService().GetNegativeTransactionsByYearMonth(year, month)
+}
+
 // Popular messages methods
 func (db *V2DB) GetPopularMessages(limit int, year int, funnyBias bool) ([]*PopularMessage, error) {
 	return db.transactionService().GetPopularMessages(limit, year, funnyBias)
@@ -143,6 +184,14 @@ func (db *V2DB) GetPopularMessages(limit int, year int, funnyBias bool) ([]*Popu
 
 func (db *V2DB) GetPopularMessagesByUser(limit int, year int, username string, funnyBias bool) ([]*PopularMessage, error) {
 	return db.transactionService().GetPopularMessagesByUser(limit, year, username, funnyBias)
+}
+
+func (db *V2DB) GetPopularMessagesByYearMonth(limit int, year, month int, funnyBias bool) ([]*PopularMessage, error) {
+	return db.transactionService().GetPopularMessagesByYearMonth(limit, year, month, funnyBias)
+}
+
+func (db *V2DB) GetPopularMessagesByUserYearMonth(limit int, year, month int, username string, funnyBias bool) ([]*PopularMessage, error) {
+	return db.transactionService().GetPopularMessagesByUserYearMonth(limit, year, month, username, funnyBias)
 }
 
 func (db *V2DB) GetPopularMessagesSince(since time.Time) ([]*PopularMessage, error) {
@@ -264,6 +313,18 @@ func (db *V2DB) GetTotalUsersCumulative() (int, error) {
 	return db.userService().GetTotalUsersCumulative()
 }
 
+func (db *V2DB) GetTotalUsersByYearMonth(year, month int) (int, error) {
+	return db.userService().GetTotalUsersByYearMonth(year, month)
+}
+
+func (db *V2DB) GetLeaderboardByYearMonth(year, month, limit int) ([]*UserSummary, error) {
+	return db.userService().GetLeaderboardByYearMonth(year, month, limit)
+}
+
+func (db *V2DB) GetTopGiversByYearMonth(limit, year, month int) ([]*UserSummary, error) {
+	return db.userService().GetTopGiversByYearMonth(limit, year, month)
+}
+
 // EmojiRepository implementation
 
 // Top emojis methods
@@ -300,6 +361,14 @@ func (db *V2DB) GetTotalEmojiUsageCumulative() (int, error) {
 	return db.emojiService().GetTotalEmojiUsageCumulative()
 }
 
+func (db *V2DB) GetTopEmojisByYearMonth(year, month, limit int) ([]*EmojiStats, error) {
+	return db.emojiService().GetTopEmojisByYearMonth(year, month, limit)
+}
+
+func (db *V2DB) GetTotalEmojiUsageByYearMonth(year, month int) (int, error) {
+	return db.emojiService().GetTotalEmojiUsageByYearMonth(year, month)
+}
+
 // Emoji leaderboard methods
 func (db *V2DB) GetEmojiLeaderboard(emojiName string) ([]*EmojiLeaderboard, error) {
 	return db.emojiService().GetEmojiLeaderboardByCurrentYear(emojiName)
@@ -334,6 +403,10 @@ func (db *V2DB) GetTotalPointsByYear(year int) (int, error) {
 
 func (db *V2DB) GetTotalPointsCumulative() (int, error) {
 	return db.statsService().GetTotalPointsCumulative()
+}
+
+func (db *V2DB) GetTotalPointsByYearMonth(year, month int) (int, error) {
+	return db.statsService().GetTotalPointsByYearMonth(year, month)
 }
 
 // Monthly stats methods
@@ -390,6 +463,14 @@ func (db *V2DB) GetKarmaDistributionByYear(year int) ([]map[string]interface{}, 
 
 func (db *V2DB) GetKarmaDistributionCumulative() ([]map[string]interface{}, error) {
 	return db.statsService().GetKarmaDistributionCumulative()
+}
+
+func (db *V2DB) GetKarmaDistributionByYearMonth(year, month int) ([]map[string]interface{}, error) {
+	return db.statsService().GetKarmaDistributionByYearMonth(year, month)
+}
+
+func (db *V2DB) GetTopChannels(year, month, limit int) ([]*ChannelStats, error) {
+	return db.statsService().GetTopChannels(year, month, limit)
 }
 
 // Utility methods

@@ -76,7 +76,7 @@ function LazyMedia({ as, src, mime, alt, className, style, priority = false, roo
   return null
 }
 
-function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
+function PopularMessagesPage({ selectedYear, selectedMonth = 0, selectedUser, onUserChange }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const page = Math.max(0, parseInt(searchParams.get('page') || '0', 10) || 0)
   const minReactions = Math.max(0, parseInt(searchParams.get('min_reactions') || '0', 10) || 0)
@@ -113,6 +113,13 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
   React.useEffect(() => {
     setMinReactionsInput(minReactions > 0 ? String(minReactions) : '')
   }, [minReactions])
+
+  // Reset page to 0 when global year/month filter changes
+  React.useEffect(() => {
+    if (page !== 0) {
+      updateSearchParams({ page: 0 })
+    }
+  }, [selectedYear, selectedMonth])
 
   const updateSearchParams = (updates) => {
     const allowZeroKeys = new Set(['hallmark', 'page'])
@@ -156,17 +163,19 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
     updateSearchParams(updates)
   }
 
+  const monthParam = selectedMonth > 0 ? `&month=${selectedMonth}` : ''
+
   const { data: leaderboard } = useApi(
-    selectedYear === 0
+    selectedYear === 0 && !selectedMonth
       ? '/api/leaderboard?limit=100'
-      : `/api/leaderboard?limit=100&year=${selectedYear}`
+      : `/api/leaderboard?limit=100&year=${selectedYear}${monthParam}`
   )
 
   const { data: messages, loading, error } = useApi(
     selectedYear !== null
-      ? `/api/stats/popular-messages?limit=${pageSize}&offset=${page * pageSize}&year=${selectedYear === 0 ? '' : selectedYear}&include_meta=1${userFilter ? `&user=${userFilter}` : ''}${minReactions > 0 ? `&min_reactions=${minReactions}` : ''}${mediaOnly ? '&has_media=1' : ''}${funnyBias ? '&funny_bias=1' : ''}`
+      ? `/api/stats/popular-messages?limit=${pageSize}&offset=${page * pageSize}&year=${selectedYear === 0 ? '' : selectedYear}${monthParam}&include_meta=1${userFilter ? `&user=${userFilter}` : ''}${minReactions > 0 ? `&min_reactions=${minReactions}` : ''}${mediaOnly ? '&has_media=1' : ''}${funnyBias ? '&funny_bias=1' : ''}`
       : null,
-    [selectedYear, userFilter, page, minReactions, mediaOnly, funnyBias]
+    [selectedYear, selectedMonth, userFilter, page, minReactions, mediaOnly, funnyBias]
   )
 
   const list = messages?.items || messages
@@ -333,6 +342,35 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
         </div>
       )}
 
+      {/* Quick Filter Pills */}
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        {[
+          { label: '🎭 Funny Mode', active: funnyBias && !mediaOnly && minReactions === 0 && !userFilter, action: () => { updateSearchParams({ funny_bias: 1, media: null, min_reactions: null, user: null, hallmark: null, page: 0 }); onUserChange('') } },
+          { label: '📸 Media Only', active: mediaOnly, action: () => handleMediaOnlyChange(!mediaOnly) },
+          { label: '🔥 Top Reactions (5+)', active: minReactions >= 5, action: () => handleMinReactionsChange(minReactions >= 5 ? 0 : 5) },
+          { label: '🔗 All Messages', active: !funnyBias && !mediaOnly && minReactions === 0 && !userFilter, action: () => { updateSearchParams({ funny_bias: null, media: null, min_reactions: null, user: null, hallmark: 1, page: 0 }); onUserChange('') } },
+        ].map((pill) => (
+          <button
+            key={pill.label}
+            onClick={pill.action}
+            style={{
+              padding: '0.45rem 1rem',
+              borderRadius: '20px',
+              border: pill.active ? '2px solid #667eea' : '2px solid #e0e0e0',
+              background: pill.active ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'white',
+              color: pill.active ? 'white' : '#555',
+              fontWeight: '600',
+              fontSize: '0.875rem',
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+              boxShadow: pill.active ? '0 2px 8px rgba(102,126,234,0.3)' : 'none'
+            }}
+          >
+            {pill.label}
+          </button>
+        ))}
+      </div>
+
       <div className="card" style={{
         background: 'white',
         borderRadius: '12px',
@@ -341,18 +379,37 @@ function PopularMessagesPage({ selectedYear, selectedUser, onUserChange }) {
         border: '1px solid #f0f0f0',
         marginBottom: '2rem'
       }}>
-        <h3 style={{
-          margin: '0 0 1rem 0',
-          fontSize: '1.2rem',
-          fontWeight: '600',
-          color: '#2c3e50',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem'
-        }}>
-          <span>🔎</span>
-          Filter by User
-        </h3>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <h3 style={{
+            margin: 0,
+            fontSize: '1.2rem',
+            fontWeight: '600',
+            color: '#2c3e50',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}>
+            <span>🔎</span>
+            Filters
+          </h3>
+          {(userFilter || minReactions > 0 || mediaOnly || !funnyBias) && (
+            <button
+              onClick={() => { updateSearchParams({ funny_bias: null, media: null, min_reactions: null, user: null, hallmark: null, page: 0 }); onUserChange('') }}
+              style={{
+                padding: '0.35rem 0.9rem',
+                borderRadius: '16px',
+                border: '1px solid #e74c3c',
+                background: '#fff5f5',
+                color: '#e74c3c',
+                fontWeight: '600',
+                fontSize: '0.8rem',
+                cursor: 'pointer'
+              }}
+            >
+              ✕ Clear All
+            </button>
+          )}
+        </div>
         <div style={{
           display: 'flex',
           gap: '1rem',

@@ -13,6 +13,7 @@ import (
 // SlackService interface for Slack operations
 type SlackService interface {
 	EnrichUsersWithSlackInfo(users []*database.UserSummary) []*database.UserSummary
+	TranslateMentions(text string) string
 	CheckBotHealth() bool
 	GetMessageText(channelID, messageID string) (string, error)
 	GetMessagePermalink(channelID, messageID string) (string, error)
@@ -24,6 +25,8 @@ type SlackService interface {
 type DataStore interface {
 	GetPopularMessages(limit int, year int, funnyBias bool) ([]*database.PopularMessage, error)
 	GetPopularMessagesByUser(limit int, year int, username string, funnyBias bool) ([]*database.PopularMessage, error)
+	GetPopularMessagesByYearMonth(limit int, year, month int, funnyBias bool) ([]*database.PopularMessage, error)
+	GetPopularMessagesByUserYearMonth(limit int, year, month int, username string, funnyBias bool) ([]*database.PopularMessage, error)
 	GetPopularMessagesSince(since time.Time) ([]*database.PopularMessage, error)
 	GetPopularMessageCount(year int, username string, minReactions int, funnyBias bool) (int, error)
 	GetPopularMessageCountWithMedia(year int, username string, minReactions int, funnyBias bool) (int, error)
@@ -53,12 +56,33 @@ type DataStore interface {
 	GetAvailableYears() ([]int, error)
 	GetTopEmojisByYear(year, limit int) ([]*database.EmojiStats, error)
 	GetTotalEmojiUsageByYear(year int) (int, error)
+	GetTopEmojisByYearMonth(year, month, limit int) ([]*database.EmojiStats, error)
+	GetTotalEmojiUsageByYearMonth(year, month int) (int, error)
 	GetKarmaDistributionByYear(year int) ([]map[string]interface{}, error)
+	GetKarmaDistributionByYearMonth(year, month int) ([]map[string]interface{}, error)
+	GetTopChannels(year, month, limit int) ([]*database.ChannelStats, error)
 	GetActivityTimelineByYear(year int) ([]map[string]interface{}, error)
 	GetPointsOverTimeMonthlyByYear(year int) ([]map[string]interface{}, error)
 	GetCurrentLeaderboard(limit int) ([]*database.UserSummary, error)
 	GetYearlyLeaderboard(year, limit int) ([]*database.UserSummary, error)
 	GetRecentActivityPage(filter database.RecentActivityFilter) (*database.RecentActivityPage, error)
+
+	GetKarmaColluders(limit, year int) ([]*database.KarmaColluder, error)
+	GetFunFacts(year int) (*database.FunFacts, error)
+
+	// Month-scoped methods
+	GetTotalPointsByYearMonth(year, month int) (int, error)
+	GetTotalUsersByYearMonth(year, month int) (int, error)
+	GetTotalTransactionsByYearMonth(year, month int) (int, error)
+	GetPositiveTransactionsByYearMonth(year, month int) (int, error)
+	GetNegativeTransactionsByYearMonth(year, month int) (int, error)
+	GetTopGiversByYearMonth(limit, year, month int) ([]*database.UserSummary, error)
+	GetLeaderboardByYearMonth(year, month, limit int) ([]*database.UserSummary, error)
+	GetKarmaColludersByYearMonth(limit, year, month int) ([]*database.KarmaColluder, error)
+	GetFunFactsByYearMonth(year, month int) (*database.FunFacts, error)
+
+	GetUserTopChannels(username string, year, month, limit int) ([]*database.ChannelStats, error)
+	GetUserColluders(username string, limit, year, month int) ([]*database.KarmaColluder, error)
 }
 
 // Handler contains dependencies for API handlers

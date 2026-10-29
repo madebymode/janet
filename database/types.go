@@ -97,6 +97,7 @@ type RecentActivityFilter struct {
 	Limit    int
 	Offset   int
 	Year     int
+	Month    int
 	FromUser string
 	ToUser   string
 }
@@ -153,6 +154,53 @@ type PopularMessageDetails struct {
 	IsReply        *bool
 	IsIgnored      *bool
 	DetailsFetched *bool
+}
+
+// ChannelStats represents karma activity for a Slack channel
+type ChannelStats struct {
+	ChannelName      string `json:"channel_name"`
+	TransactionCount int    `json:"transaction_count"`
+	TotalPoints      int    `json:"total_points"`
+}
+
+// ChannelExchange represents karma exchange activity in a specific channel
+type ChannelExchange struct {
+	ChannelName string `json:"channel_name"`
+	Count       int    `json:"count"`
+}
+
+// KarmaColluder represents a pair of users who mutually give each other karma
+type KarmaColluder struct {
+	User1            string             `json:"user1"`
+	User2            string             `json:"user2"`
+	User1ToUser2     int                `json:"user1_to_user2"`
+	User2ToUser1     int                `json:"user2_to_user1"`
+	TotalExchange    int                `json:"total_exchange"`
+	User1DisplayName *string            `json:"user1_display_name,omitempty"`
+	User2DisplayName *string            `json:"user2_display_name,omitempty"`
+	User1Avatar      *string            `json:"user1_avatar,omitempty"`
+	User2Avatar      *string            `json:"user2_avatar,omitempty"`
+	TopChannels      []*ChannelExchange `json:"top_channels,omitempty"`
+}
+
+// BiggestKarmaEvent represents the single largest karma transaction
+type BiggestKarmaEvent struct {
+	FromUser string  `json:"from_user"`
+	ToUser   string  `json:"to_user"`
+	Points   int     `json:"points"`
+	Reason   *string `json:"reason,omitempty"`
+}
+
+// FunFacts holds computed interesting stats about karma activity
+type FunFacts struct {
+	MostActiveHour         int                `json:"most_active_hour"`
+	MostActiveHourCount    int                `json:"most_active_hour_count"`
+	MostActiveDOW          int                `json:"most_active_dow"`
+	MostActiveDOWCount     int                `json:"most_active_dow_count"`
+	BiggestKarmaEvent      *BiggestKarmaEvent `json:"biggest_karma_event,omitempty"`
+	MostActiveChannel      *string            `json:"most_active_channel,omitempty"`
+	MostActiveChannelCount int                `json:"most_active_channel_count"`
+	TotalUniqueChannels    int                `json:"total_unique_channels"`
 }
 
 // Legacy types for backward compatibility

@@ -469,6 +469,10 @@ func (ts *TransactionService) GetRecentActivityPage(filter RecentActivityFilter)
 		baseArgs = append(baseArgs, filter.Year)
 		conditions = append(conditions, "year = $"+strconv.Itoa(len(baseArgs)))
 	}
+	if filter.Month > 0 {
+		baseArgs = append(baseArgs, filter.Month)
+		conditions = append(conditions, "EXTRACT(MONTH FROM timestamp) = $"+strconv.Itoa(len(baseArgs)))
+	}
 	if filter.FromUser != "" {
 		baseArgs = append(baseArgs, "%"+filter.FromUser+"%")
 		conditions = append(conditions, "from_user ILIKE $"+strconv.Itoa(len(baseArgs)))
@@ -569,17 +573,52 @@ func (ts *TransactionService) GetNegativeTransactionsCumulative() (int, error) {
 	return ts.GetNegativeTransactionsByYear(0) // 0 means all-time/cumulative
 }
 
+func (ts *TransactionService) GetTotalTransactionsByYearMonth(year, month int) (int, error) {
+	var total int
+	err := ts.db.SQL.QueryRow(
+		`SELECT COALESCE(COUNT(*), 0) FROM karma_transactions WHERE year = $1 AND EXTRACT(MONTH FROM timestamp) = $2`,
+		year, month,
+	).Scan(&total)
+	return total, err
+}
+
+func (ts *TransactionService) GetPositiveTransactionsByYearMonth(year, month int) (int, error) {
+	var total int
+	err := ts.db.SQL.QueryRow(
+		`SELECT COALESCE(COUNT(*), 0) FROM karma_transactions WHERE points > 0 AND year = $1 AND EXTRACT(MONTH FROM timestamp) = $2`,
+		year, month,
+	).Scan(&total)
+	return total, err
+}
+
+func (ts *TransactionService) GetNegativeTransactionsByYearMonth(year, month int) (int, error) {
+	var total int
+	err := ts.db.SQL.QueryRow(
+		`SELECT COALESCE(COUNT(*), 0) FROM karma_transactions WHERE points < 0 AND year = $1 AND EXTRACT(MONTH FROM timestamp) = $2`,
+		year, month,
+	).Scan(&total)
+	return total, err
+}
+
 // GetPopularMessages returns messages with the most reactions
 // Excludes 'bangbang' reactions and prioritizes messages with 'joy' emoji reactions (funny posts)
 func (ts *TransactionService) GetPopularMessages(limit int, year int, funnyBias bool) ([]*PopularMessage, error) {
-	return ts.getPopularMessages(limit, year, "", funnyBias)
+	return ts.getPopularMessages(limit, year, 0, "", funnyBias)
 }
 
 func (ts *TransactionService) GetPopularMessagesByUser(limit int, year int, username string, funnyBias bool) ([]*PopularMessage, error) {
-	return ts.getPopularMessages(limit, year, username, funnyBias)
+	return ts.getPopularMessages(limit, year, 0, username, funnyBias)
 }
 
-func (ts *TransactionService) getPopularMessages(limit int, year int, username string, funnyBias bool) ([]*PopularMessage, error) {
+func (ts *TransactionService) GetPopularMessagesByYearMonth(limit int, year, month int, funnyBias bool) ([]*PopularMessage, error) {
+	return ts.getPopularMessages(limit, year, month, "", funnyBias)
+}
+
+func (ts *TransactionService) GetPopularMessagesByUserYearMonth(limit int, year, month int, username string, funnyBias bool) ([]*PopularMessage, error) {
+	return ts.getPopularMessages(limit, year, month, username, funnyBias)
+}
+
+func (ts *TransactionService) getPopularMessages(limit int, year int, month int, username string, funnyBias bool) ([]*PopularMessage, error) {
 	query := `
 		WITH message_reactions AS (
 			SELECT
@@ -598,8 +637,12 @@ func (ts *TransactionService) getPopularMessages(limit int, year int, username s
 
 	args := []interface{}{}
 	if year > 0 {
-		query += " AND year = $1"
+		query += " AND year = $" + strconv.Itoa(len(args)+1)
 		args = append(args, year)
+	}
+	if month > 0 {
+		query += " AND EXTRACT(MONTH FROM timestamp) = $" + strconv.Itoa(len(args)+1)
+		args = append(args, month)
 	}
 	if username != "" {
 		query += " AND to_user = $" + strconv.Itoa(len(args)+1)

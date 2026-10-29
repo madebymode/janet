@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -337,4 +338,114 @@ func (ss *StatsService) GetActivityTimelineByYear(year int) ([]map[string]interf
 
 func (ss *StatsService) GetKarmaDistributionByYear(year int) ([]map[string]interface{}, error) {
 	return ss.GetKarmaDistribution(year)
+}
+
+func (ss *StatsService) GetKarmaDistributionByYearMonth(year, month int) ([]map[string]interface{}, error) {
+	query := `
+		SELECT SUM(points_received) as total_points
+		FROM (
+		    SELECT to_user as username, points as points_received
+		    FROM karma_transactions
+		    WHERE year = $1 AND EXTRACT(MONTH FROM timestamp) = $2
+		    UNION ALL
+		    SELECT from_user as username, 0 as points_received
+		    FROM karma_transactions
+		    WHERE year = $1 AND EXTRACT(MONTH FROM timestamp) = $2
+		) as combined_transactions
+		GROUP BY username
+		HAVING SUM(points_received) > 0
+		ORDER BY total_points DESC
+	`
+	rows, err := ss.db.SQL.Query(query, year, month)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	distribution := map[string]int{
+		"0 to 10": 0, "11 to 50": 0, "51 to 100": 0,
+		"101 to 200": 0, "201 to 500": 0, "501 to 1000": 0, "1000+": 0,
+	}
+	for rows.Next() {
+		var points int
+		if err := rows.Scan(&points); err != nil {
+			return nil, err
+		}
+		switch {
+		case points >= 1000:
+			distribution["1000+"]++
+		case points >= 501:
+			distribution["501 to 1000"]++
+		case points >= 201:
+			distribution["201 to 500"]++
+		case points >= 101:
+			distribution["101 to 200"]++
+		case points >= 51:
+			distribution["51 to 100"]++
+		case points >= 11:
+			distribution["11 to 50"]++
+		default:
+			distribution["0 to 10"]++
+		}
+	}
+
+	keys := []string{"0 to 10", "11 to 50", "51 to 100", "101 to 200", "201 to 500", "501 to 1000", "1000+"}
+	var response []map[string]interface{}
+	for _, rangeStr := range keys {
+		if count := distribution[rangeStr]; count > 0 {
+			response = append(response, map[string]interface{}{"range": rangeStr, "count": count})
+		}
+	}
+	return response, nil
+}
+
+// GetTopChannels returns the most active channels by transaction count for a given year+month (month=0 means full year, year=0 means all time).
+func (ss *StatsService) GetTopChannels(year, month, limit int) ([]*ChannelStats, error) {
+	args := []interface{}{}
+	conds := []string{"channel_name IS NOT NULL", "channel_name != ''"}
+
+	if year > 0 {
+		args = append(args, year)
+		conds = append(conds, fmt.Sprintf("year = $%d", len(args)))
+	}
+	if month > 0 {
+		args = append(args, month)
+		conds = append(conds, fmt.Sprintf("EXTRACT(MONTH FROM timestamp) = $%d", len(args)))
+	}
+
+	where := "WHERE " + strings.Join(conds, " AND ")
+	args = append(args, limit)
+	query := fmt.Sprintf(`
+		SELECT channel_name, COUNT(*) as transaction_count, SUM(CASE WHEN points > 0 THEN points ELSE 0 END) as total_points
+		FROM karma_transactions
+		%s
+		GROUP BY channel_name
+		ORDER BY transaction_count DESC
+		LIMIT $%d
+	`, where, len(args))
+
+	rows, err := ss.db.SQL.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []*ChannelStats
+	for rows.Next() {
+		ch := &ChannelStats{}
+		if err := rows.Scan(&ch.ChannelName, &ch.TransactionCount, &ch.TotalPoints); err != nil {
+			return nil, err
+		}
+		results = append(results, ch)
+	}
+	return results, rows.Err()
+}
+
+func (ss *StatsService) GetTotalPointsByYearMonth(year, month int) (int, error) {
+	var total int
+	err := ss.db.SQL.QueryRow(
+		`SELECT COALESCE(SUM(points), 0) FROM karma_transactions WHERE points > 0 AND year = $1 AND EXTRACT(MONTH FROM timestamp) = $2`,
+		year, month,
+	).Scan(&total)
+	return total, err
 }

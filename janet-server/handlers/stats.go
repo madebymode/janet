@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/troyxmccall/janet/database"
 )
 
 // HandleAPIStatsV2 handles requests for basic statistics (V2 API)
@@ -67,9 +68,19 @@ func (h *Handler) HandleAPIStatsDetailed(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Invalid year", http.StatusBadRequest)
 		return
 	}
+	month, err := parseOptionalMonth(r)
+	if err != nil {
+		http.Error(w, "Invalid month", http.StatusBadRequest)
+		return
+	}
+	if month > 0 && year == 0 {
+		year = time.Now().Year()
+	}
 
 	var totalUsers int
-	if year == 0 {
+	if month > 0 {
+		totalUsers, err = h.db.GetTotalUsersByYearMonth(year, month)
+	} else if year == 0 {
 		totalUsers, err = h.db.GetTotalUsersCumulative()
 	} else {
 		totalUsers, err = h.db.GetTotalUsersByYear(year)
@@ -81,7 +92,9 @@ func (h *Handler) HandleAPIStatsDetailed(w http.ResponseWriter, r *http.Request)
 	}
 
 	var totalPoints int
-	if year == 0 {
+	if month > 0 {
+		totalPoints, err = h.db.GetTotalPointsByYearMonth(year, month)
+	} else if year == 0 {
 		totalPoints, err = h.db.GetTotalPointsCumulative()
 	} else {
 		totalPoints, err = h.db.GetTotalPointsByYear(year)
@@ -93,7 +106,9 @@ func (h *Handler) HandleAPIStatsDetailed(w http.ResponseWriter, r *http.Request)
 	}
 
 	var totalTransactions int
-	if year == 0 {
+	if month > 0 {
+		totalTransactions, err = h.db.GetTotalTransactionsByYearMonth(year, month)
+	} else if year == 0 {
 		totalTransactions, err = h.db.GetTotalTransactionsCumulative()
 	} else {
 		totalTransactions, err = h.db.GetTotalTransactionsByYear(year)
@@ -105,7 +120,9 @@ func (h *Handler) HandleAPIStatsDetailed(w http.ResponseWriter, r *http.Request)
 	}
 
 	var positiveTransactions int
-	if year == 0 {
+	if month > 0 {
+		positiveTransactions, err = h.db.GetPositiveTransactionsByYearMonth(year, month)
+	} else if year == 0 {
 		positiveTransactions, err = h.db.GetPositiveTransactionsCumulative()
 	} else {
 		positiveTransactions, err = h.db.GetPositiveTransactionsByYear(year)
@@ -117,7 +134,9 @@ func (h *Handler) HandleAPIStatsDetailed(w http.ResponseWriter, r *http.Request)
 	}
 
 	var negativeTransactions int
-	if year == 0 {
+	if month > 0 {
+		negativeTransactions, err = h.db.GetNegativeTransactionsByYearMonth(year, month)
+	} else if year == 0 {
 		negativeTransactions, err = h.db.GetNegativeTransactionsCumulative()
 	} else {
 		negativeTransactions, err = h.db.GetNegativeTransactionsByYear(year)
@@ -176,9 +195,20 @@ func (h *Handler) HandleAPITopGiversByYear(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	month, err := parseOptionalMonth(r)
+	if err != nil {
+		http.Error(w, "Invalid month", http.StatusBadRequest)
+		return
+	}
+
 	limit := parseIntQuery(r, "limit", 10, 1, 100)
 
-	topGivers, err := h.db.GetTopGiversByYear(limit, year)
+	var topGivers []*database.UserSummary
+	if month > 0 {
+		topGivers, err = h.db.GetTopGiversByYearMonth(limit, year, month)
+	} else {
+		topGivers, err = h.db.GetTopGiversByYear(limit, year)
+	}
 	if err != nil {
 		h.logger.Err(err).Error("failed to get top givers by year")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -219,15 +249,31 @@ func (h *Handler) HandleAPITopEmojis(w http.ResponseWriter, r *http.Request) {
 	if year == 0 {
 		year = time.Now().Year()
 	}
-
-	emojis, err := h.db.GetTopEmojisByYear(year, limit)
+	month, err := parseOptionalMonth(r)
 	if err != nil {
-		h.logger.Err(err).Error("failed to get top emojis")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, "Invalid month", http.StatusBadRequest)
 		return
 	}
 
-	totalEmojiUsage, err := h.db.GetTotalEmojiUsageByYear(year)
+	var emojis []*database.EmojiStats
+	var totalEmojiUsage int
+	if month > 0 {
+		emojis, err = h.db.GetTopEmojisByYearMonth(year, month, limit)
+		if err != nil {
+			h.logger.Err(err).Error("failed to get top emojis by month")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		totalEmojiUsage, err = h.db.GetTotalEmojiUsageByYearMonth(year, month)
+	} else {
+		emojis, err = h.db.GetTopEmojisByYear(year, limit)
+		if err != nil {
+			h.logger.Err(err).Error("failed to get top emojis")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		totalEmojiUsage, err = h.db.GetTotalEmojiUsageByYear(year)
+	}
 	if err != nil {
 		h.logger.Err(err).Error("failed to get total emoji usage")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -257,8 +303,21 @@ func (h *Handler) HandleAPIKarmaDistribution(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Invalid year", http.StatusBadRequest)
 		return
 	}
+	month, err := parseOptionalMonth(r)
+	if err != nil {
+		http.Error(w, "Invalid month", http.StatusBadRequest)
+		return
+	}
+	if month > 0 && year == 0 {
+		year = time.Now().Year()
+	}
 
-	response, err := h.db.GetKarmaDistributionByYear(year)
+	var response []map[string]interface{}
+	if month > 0 {
+		response, err = h.db.GetKarmaDistributionByYearMonth(year, month)
+	} else {
+		response, err = h.db.GetKarmaDistributionByYear(year)
+	}
 	if err != nil {
 		h.logger.Err(err).Error("failed to get karma distribution")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -342,4 +401,33 @@ func (h *Handler) HandleAPIPopularMessages(w http.ResponseWriter, r *http.Reques
 		logEvent = logEvent.KV("backfill_failures", failures)
 	}
 	logEvent.Info("popular messages response")
+}
+
+// HandleAPITopChannels returns the most active channels by transaction count.
+func (h *Handler) HandleAPITopChannels(w http.ResponseWriter, r *http.Request) {
+	year, err := parseOptionalYear(r)
+	if err != nil {
+		http.Error(w, "Invalid year", http.StatusBadRequest)
+		return
+	}
+	month, err := parseOptionalMonth(r)
+	if err != nil {
+		http.Error(w, "Invalid month", http.StatusBadRequest)
+		return
+	}
+	if month > 0 && year == 0 {
+		year = time.Now().Year()
+	}
+	limit := parseIntQuery(r, "limit", 10, 1, 50)
+
+	channels, err := h.db.GetTopChannels(year, month, limit)
+	if err != nil {
+		h.logger.Err(err).Error("failed to get top channels")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"channels": channels,
+	})
 }

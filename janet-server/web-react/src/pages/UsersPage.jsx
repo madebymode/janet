@@ -3,18 +3,20 @@ import { useApi } from '../hooks/useApi'
 import StatCard from '../components/StatCard'
 import LineChart from '../components/charts/LineChart'
 
-function UsersPage({ selectedYear, selectedUser, onUserChange, onYearChange }) {
+function UsersPage({ selectedYear, selectedMonth = 0, selectedUser, onUserChange, onYearChange }) {
+  const monthParam = selectedMonth > 0 ? `&month=${selectedMonth}` : ''
+
   // Get list of users for selection
   const { data: leaderboard } = useApi(
-    selectedYear === 0 
-      ? '/api/leaderboard?limit=100' 
-      : `/api/leaderboard?limit=100&year=${selectedYear}`
+    selectedYear === 0 && !selectedMonth
+      ? '/api/leaderboard?limit=100'
+      : `/api/leaderboard?limit=100&year=${selectedYear}${monthParam}`
   )
 
   // Get user-specific data by year (if year is selected) or all-time data
   const { data: userData, loading: userLoading } = useApi(
     selectedUser
-      ? selectedYear === 0 
+      ? selectedYear === 0
         ? `/api/user/${selectedUser}`
         : `/api/user/${selectedUser}/${selectedYear}`
       : null
@@ -29,14 +31,31 @@ function UsersPage({ selectedYear, selectedUser, onUserChange, onYearChange }) {
       : null
   )
 
+  // Top channels for selected user
+  const channelsUrl = selectedUser
+    ? selectedYear === 0 && !selectedMonth
+      ? `/api/user/${selectedUser}/channels?limit=8`
+      : `/api/user/${selectedUser}/channels?limit=8&year=${selectedYear}${monthParam}`
+    : null
+  const { data: userChannels, loading: channelsLoading } = useApi(channelsUrl)
+
+  // Colluders involving selected user
+  const colludersUrl = selectedUser
+    ? selectedYear === 0 && !selectedMonth
+      ? `/api/user/${selectedUser}/colluders?limit=5`
+      : `/api/user/${selectedUser}/colluders?limit=5&year=${selectedYear}${monthParam}`
+    : null
+  const { data: userColluders, loading: userColludersLoading } = useApi(colludersUrl)
+
   const getYearLabel = () => {
+    if (selectedMonth > 0) {
+      const monthName = new Date(selectedYear, selectedMonth - 1).toLocaleString('en-US', { month: 'long' })
+      return `${monthName} ${selectedYear}`
+    }
     if (selectedYear === 0) return 'All Time'
     if (selectedYear === new Date().getFullYear()) return 'This Year'
     return selectedYear.toString()
   }
-
-  // Since we don't have user-specific monthly data, 
-  // we'll show a message about this limitation
 
   return (
     <div className="users-page">
@@ -246,6 +265,152 @@ function UsersPage({ selectedYear, selectedUser, onUserChange, onYearChange }) {
               </div>
             )}
           </div>
+
+          {/* Most Active Channels */}
+          <div className="card" style={{
+            background: 'linear-gradient(135deg, #f0fff4 0%, #e8f5e9 100%)',
+            borderRadius: '12px',
+            padding: '1.5rem',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+            border: '1px solid #a5d6a7',
+            marginBottom: '2rem'
+          }}>
+            <h3 style={{
+              margin: '0 0 0.4rem 0',
+              fontSize: '1.2rem',
+              fontWeight: '600',
+              color: '#1b5e20',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}>
+              <span>📣</span>
+              Most Active Channels — {selectedUser}
+            </h3>
+            <p style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', color: '#388e3c' }}>
+              Channels where {selectedUser} gives and receives karma most frequently.
+            </p>
+            {channelsLoading ? (
+              <div style={{ color: '#388e3c', fontSize: '0.95rem' }}>Loading channels...</div>
+            ) : userChannels?.channels?.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {userChannels.channels.map((ch, i) => {
+                  const maxCount = userChannels.channels[0]?.transaction_count || 1
+                  const pct = Math.round((ch.transaction_count / maxCount) * 100)
+                  const medals = ['🥇', '🥈', '🥉']
+                  return (
+                    <div key={ch.channel_name} style={{
+                      background: 'white',
+                      borderRadius: '10px',
+                      padding: '0.6rem 1rem',
+                      border: '1px solid #c8e6c9',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.75rem'
+                    }}>
+                      <span style={{ fontSize: '1rem', flexShrink: 0 }}>{medals[i] || `#${i + 1}`}</span>
+                      <span style={{ fontWeight: '700', color: '#1b5e20', fontSize: '0.95rem', minWidth: '100px' }}>#{ch.channel_name}</span>
+                      <div style={{ flex: 1, background: '#e8f5e9', borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #43a047, #66bb6a)', height: '100%', borderRadius: '4px' }} />
+                      </div>
+                      <span style={{ fontSize: '0.85rem', color: '#388e3c', fontWeight: '600', flexShrink: 0 }}>{ch.transaction_count.toLocaleString()} txns</span>
+                      <span style={{ fontSize: '0.8rem', color: '#81c784', flexShrink: 0 }}>{ch.total_points.toLocaleString()} pts</span>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div style={{ color: '#388e3c', fontSize: '0.9rem' }}>No channel data for this period.</div>
+            )}
+          </div>
+
+          {/* Colluder Pairs */}
+          {(userColludersLoading || userColluders?.colluders?.length > 0) && (
+            <div style={{
+              background: 'linear-gradient(135deg, #f0f4ff 0%, #e8eeff 100%)',
+              borderRadius: '12px',
+              padding: '1.5rem',
+              border: '1px solid #c5d0f5',
+              marginBottom: '2rem'
+            }}>
+              <h3 style={{
+                margin: '0 0 0.4rem 0',
+                fontSize: '1.2rem',
+                fontWeight: '600',
+                color: '#1a237e',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                <span>🤝</span>
+                Karma Colluders — {selectedUser}
+              </h3>
+              <p style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', color: '#3949ab' }}>
+                Mutual karma exchange pairs involving {selectedUser}, with top channels.
+              </p>
+              {userColludersLoading ? (
+                <div style={{ color: '#3949ab', fontSize: '0.95rem' }}>Loading colluders...</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  {userColluders.colluders.map((c, i) => {
+                    const name1 = c.user1_display_name || `@${c.user1}`
+                    const name2 = c.user2_display_name || `@${c.user2}`
+                    const medals = ['🥇', '🥈', '🥉']
+                    return (
+                      <div key={`${c.user1}-${c.user2}`} style={{
+                        background: 'white',
+                        borderRadius: '10px',
+                        padding: '0.75rem 1rem',
+                        border: '1px solid #dde3f7',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: c.top_channels?.length > 0 ? '0.5rem' : 0 }}>
+                          <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>{medals[i] || `#${i + 1}`}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: 1, flexWrap: 'wrap', minWidth: 0 }}>
+                            {c.user1_avatar && <img src={c.user1_avatar} alt={name1} style={{ width: '22px', height: '22px', borderRadius: '50%' }} />}
+                            <span style={{ fontWeight: '700', color: '#1a237e', fontSize: '0.9rem' }}>{name1}</span>
+                            <span style={{ color: '#667eea', fontWeight: '600', fontSize: '0.82rem' }}>{c.user1_to_user2.toLocaleString()} pts</span>
+                            <span style={{ color: '#999', fontSize: '0.85rem' }}>⇄</span>
+                            <span style={{ color: '#667eea', fontWeight: '600', fontSize: '0.82rem' }}>{c.user2_to_user1.toLocaleString()} pts</span>
+                            {c.user2_avatar && <img src={c.user2_avatar} alt={name2} style={{ width: '22px', height: '22px', borderRadius: '50%' }} />}
+                            <span style={{ fontWeight: '700', color: '#1a237e', fontSize: '0.9rem' }}>{name2}</span>
+                          </div>
+                          <div style={{
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            color: 'white',
+                            padding: '0.2rem 0.65rem',
+                            borderRadius: '12px',
+                            fontSize: '0.78rem',
+                            fontWeight: '700',
+                            flexShrink: 0
+                          }}>
+                            {c.total_exchange.toLocaleString()} total
+                          </div>
+                        </div>
+                        {c.top_channels?.length > 0 && (
+                          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', paddingLeft: '2rem' }}>
+                            <span style={{ fontSize: '0.76rem', color: '#666', alignSelf: 'center' }}>mainly in:</span>
+                            {c.top_channels.map(ch => (
+                              <span key={ch.channel_name} style={{
+                                background: '#eef0ff',
+                                color: '#3949ab',
+                                padding: '0.12rem 0.55rem',
+                                borderRadius: '10px',
+                                fontSize: '0.76rem',
+                                fontWeight: '600'
+                              }}>
+                                #{ch.channel_name} <span style={{ opacity: 0.7 }}>({ch.count})</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* User Details Card */}
           <div className="card" style={{

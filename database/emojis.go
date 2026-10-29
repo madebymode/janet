@@ -66,6 +66,51 @@ func (es *EmojiService) GetTotalEmojiUsageByYear(year int) (int, error) {
 	return total, err
 }
 
+// GetTopEmojisByYearMonth returns most used emojis for a specific year+month.
+func (es *EmojiService) GetTopEmojisByYearMonth(year, month, limit int) ([]*EmojiStats, error) {
+	query := `
+		SELECT
+		    emoji_name,
+		    year,
+		    COUNT(*) as usage_count,
+		    SUM(ABS(points)) as points_awarded,
+		    COUNT(DISTINCT from_user) as unique_users,
+		    RANK() OVER (ORDER BY COUNT(*) DESC) as rank
+		FROM karma_transactions
+		WHERE emoji_name IS NOT NULL AND year = $1 AND EXTRACT(MONTH FROM timestamp) = $2
+		GROUP BY emoji_name, year
+		ORDER BY usage_count DESC
+		LIMIT $3
+	`
+	rows, err := es.db.SQL.Query(query, year, month, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var emojis []*EmojiStats
+	for rows.Next() {
+		emoji := &EmojiStats{}
+		if err := rows.Scan(&emoji.EmojiName, &emoji.Year, &emoji.UsageCount,
+			&emoji.PointsAwarded, &emoji.UniqueUsers, &emoji.Rank); err != nil {
+			return nil, err
+		}
+		emojis = append(emojis, emoji)
+	}
+	return emojis, nil
+}
+
+// GetTotalEmojiUsageByYearMonth returns total emoji transaction count for a specific year+month.
+func (es *EmojiService) GetTotalEmojiUsageByYearMonth(year, month int) (int, error) {
+	var total int
+	err := es.db.SQL.QueryRow(`
+		SELECT COALESCE(COUNT(*), 0)
+		FROM karma_transactions
+		WHERE emoji_name IS NOT NULL AND year = $1 AND EXTRACT(MONTH FROM timestamp) = $2
+	`, year, month).Scan(&total)
+	return total, err
+}
+
 // GetEmojiLeaderboardByYear returns top users for a specific emoji
 func (es *EmojiService) GetEmojiLeaderboardByYear(emojiName string, year int) ([]*EmojiLeaderboard, error) {
 	query := `

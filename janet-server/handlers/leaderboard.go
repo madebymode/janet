@@ -69,9 +69,20 @@ func (h *Handler) HandleAPIYearlyLeaderboard(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	month, err := parseOptionalMonth(r)
+	if err != nil {
+		http.Error(w, "Invalid month", http.StatusBadRequest)
+		return
+	}
+
 	limit := parseIntQuery(r, "limit", 25, 1, 100)
 
-	leaderboard, err := h.db.GetYearlyLeaderboard(yearInt, limit)
+	var leaderboard []*database.UserSummary
+	if month > 0 {
+		leaderboard, err = h.db.GetLeaderboardByYearMonth(yearInt, month, limit)
+	} else {
+		leaderboard, err = h.db.GetYearlyLeaderboard(yearInt, limit)
+	}
 	if err != nil {
 		h.logger.Err(err).Error("failed to get yearly leaderboard")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)

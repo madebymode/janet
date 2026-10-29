@@ -36,6 +36,11 @@ type TransactionRepository interface {
 	GetNegativeTransactionsByCurrentYear() (int, error)
 	GetNegativeTransactionsByYear(year int) (int, error)
 	GetNegativeTransactionsCumulative() (int, error)
+
+	// Month-scoped methods
+	GetTotalTransactionsByYearMonth(year, month int) (int, error)
+	GetPositiveTransactionsByYearMonth(year, month int) (int, error)
+	GetNegativeTransactionsByYearMonth(year, month int) (int, error)
 }
 
 // UserRepository defines methods for user operations
@@ -63,6 +68,11 @@ type UserRepository interface {
 	GetTotalUsersByCurrentYear() (int, error)
 	GetTotalUsersByYear(year int) (int, error)
 	GetTotalUsersCumulative() (int, error)
+
+	// Month-scoped methods
+	GetLeaderboardByYearMonth(year, month, limit int) ([]*UserSummary, error)
+	GetTopGiversByYearMonth(limit, year, month int) ([]*UserSummary, error)
+	GetTotalUsersByYearMonth(year, month int) (int, error)
 }
 
 // EmojiRepository defines methods for emoji operations
@@ -84,6 +94,10 @@ type EmojiRepository interface {
 	GetEmojiLeaderboardByCurrentYear(emojiName string) ([]*EmojiLeaderboard, error)
 	GetEmojiLeaderboardByYear(emojiName string, year int) ([]*EmojiLeaderboard, error)
 	GetEmojiLeaderboardCumulative(emojiName string) ([]*EmojiLeaderboard, error)
+
+	// Month-scoped methods
+	GetTopEmojisByYearMonth(year, month, limit int) ([]*EmojiStats, error)
+	GetTotalEmojiUsageByYearMonth(year, month int) (int, error)
 }
 
 // StatsRepository defines methods for statistics operations
@@ -93,6 +107,7 @@ type StatsRepository interface {
 	GetTotalPointsByCurrentYear() (int, error)
 	GetTotalPointsByYear(year int) (int, error)
 	GetTotalPointsCumulative() (int, error)
+	GetTotalPointsByYearMonth(year, month int) (int, error)
 
 	// Monthly stats methods
 	GetMonthlyStats() ([]*MonthlyStats, error) // Default: current year
@@ -114,9 +129,23 @@ type StatsRepository interface {
 	GetKarmaDistributionByCurrentYear() ([]map[string]interface{}, error)
 	GetKarmaDistributionByYear(year int) ([]map[string]interface{}, error)
 	GetKarmaDistributionCumulative() ([]map[string]interface{}, error)
+	GetKarmaDistributionByYearMonth(year, month int) ([]map[string]interface{}, error)
+
+	// Channel stats methods
+	GetTopChannels(year, month, limit int) ([]*ChannelStats, error)
 
 	// Utility methods
 	GetAvailableYears() ([]int, error)
+}
+
+// FactsRepository defines methods for fun-facts and colluder queries
+type FactsRepository interface {
+	GetKarmaColluders(limit, year int) ([]*KarmaColluder, error)
+	GetFunFacts(year int) (*FunFacts, error)
+	GetKarmaColludersByYearMonth(limit, year, month int) ([]*KarmaColluder, error)
+	GetFunFactsByYearMonth(year, month int) (*FunFacts, error)
+	GetUserTopChannels(username string, year, month, limit int) ([]*ChannelStats, error)
+	GetUserColluders(username string, limit, year, month int) ([]*KarmaColluder, error)
 }
 
 // SummaryRepository defines methods for summary table operations
@@ -144,6 +173,7 @@ type Database interface {
 	UserRepository
 	EmojiRepository
 	StatsRepository
+	FactsRepository
 	SummaryRepository
 	BackfillRepository
 	LegacyRepository

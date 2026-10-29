@@ -1,6 +1,31 @@
 package handlers
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+// isPermanentSlackError returns true for errors where retrying will never succeed
+// (bot not in channel, channel deleted/archived, etc.)
+func isPermanentSlackError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	permanent := []string{
+		"channel_not_found",
+		"not_in_channel",
+		"channel_not_accessible",
+		"is_archived",
+		"missing_scope",
+	}
+	for _, p := range permanent {
+		if strings.Contains(msg, p) {
+			return true
+		}
+	}
+	return false
+}
 
 type popularBackfillJob struct {
 	messageID    string
@@ -190,6 +215,12 @@ func (h *Handler) processPopularMessageBackfill(job popularBackfillJob) {
 	details, err := h.slack.GetMessageDetails(channelID, job.messageID)
 	if err != nil {
 		h.notePopularBackfillFailure("get_message_details_failed", job.messageID, err)
+		// For permanent Slack errors (bot not in channel, channel deleted), mark as
+		// fetched so we stop retrying on every API call.
+		if isPermanentSlackError(err) {
+			done := true
+			_ = h.db.UpsertPopularMessageDetails(job.messageID, &channelID, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &done)
+		}
 		return
 	}
 

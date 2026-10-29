@@ -7,48 +7,60 @@ const getEmojiFromName = (emojiName) => {
     'joy': '😂', '100': '💯', 'heart': '❤️', 'lol': '😂', '+1': '👍', 'skull': '💀',
     'sparkles': '✨', 'yellow_heart': '💛', '-1': '👎', 'fire': '🔥', 'clap': '👏',
     'eyes': '👀', 'thumbsup': '👍', 'thumbsdown': '👎', 'ok_hand': '👌', 'wave': '👋',
-    'raised_hands': '🙌', 'party': '🎉', 'tada': '🎉', 'star': '⭐', 'rocket': '🚀'
+    'raised_hands': '🙌', 'party': '🎉', 'tada': '🎉', 'star': '⭐', 'rocket': '🚀',
+    'bangbang': '‼️', 'exclamation': '❗', 'grey_exclamation': '❕', 'question': '❓',
+    'grey_question': '❔', 'interrobang': '⁉️'
   }
   return emojiMap[emojiName] || emojiName || '😀'
 }
 
-function ActivityPage({ selectedYear, onUserChange }) {
+function ActivityPage({ selectedYear, selectedMonth = 0, onUserChange }) {
   const [currentPage, setCurrentPage] = useState(1)
   const [fromUser, setFromUser] = useState('')
   const [toUser, setToUser] = useState('')
   const [searchFromUser, setSearchFromUser] = useState('')
   const [searchToUser, setSearchToUser] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
   const itemsPerPage = 20
 
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1)
-  }, [selectedYear, searchFromUser, searchToUser])
+  }, [selectedYear, selectedMonth, searchFromUser, searchToUser])
 
   // Build API URL with pagination and search parameters
   const buildApiUrl = () => {
     const params = new URLSearchParams()
     params.set('limit', itemsPerPage.toString())
     params.set('offset', ((currentPage - 1) * itemsPerPage).toString())
-    
+
     if (selectedYear !== 0) {
       params.set('year', selectedYear.toString())
     }
-    
+    if (selectedMonth > 0) {
+      params.set('month', selectedMonth.toString())
+    }
+
     if (searchFromUser.trim()) {
       params.set('from', searchFromUser.trim())
     }
-    
+
     if (searchToUser.trim()) {
       params.set('to', searchToUser.trim())
     }
-    
+
     return `/api/stats/recent-activity?${params.toString()}`
   }
 
   const { data: activityData, loading: activityLoading, refetch } = useApi(buildApiUrl())
   
-  const recentActivity = activityData?.activities || []
+  const allActivity = activityData?.activities || []
+  const recentActivity = typeFilter === 'all' ? allActivity : allActivity.filter(a => {
+    if (typeFilter === 'positive') return a.points > 0 && a.transactionType !== 'reactji'
+    if (typeFilter === 'negative') return a.points < 0
+    if (typeFilter === 'emoji') return a.transactionType === 'reactji'
+    return true
+  })
   const pagination = activityData?.pagination || {}
 
   const getYearLabel = () => {
@@ -402,6 +414,35 @@ function ActivityPage({ selectedYear, onUserChange }) {
             </div>
           )}
         </div>
+
+        {/* Type filter pills */}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #f0f0f0' }}>
+          <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#666', alignSelf: 'center', marginRight: '0.25rem' }}>Type:</span>
+          {[
+            { key: 'all', label: '🔄 All' },
+            { key: 'positive', label: '⬆️ Karma ++' },
+            { key: 'negative', label: '⬇️ Karma --' },
+            { key: 'emoji', label: '😂 Emoji Reactions' },
+          ].map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTypeFilter(t.key)}
+              style={{
+                padding: '0.35rem 0.85rem',
+                borderRadius: '16px',
+                border: typeFilter === t.key ? '2px solid #667eea' : '2px solid #e0e0e0',
+                background: typeFilter === t.key ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'white',
+                color: typeFilter === t.key ? 'white' : '#555',
+                fontWeight: '600',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Activity Feed */}
@@ -518,7 +559,7 @@ function ActivityPage({ selectedYear, onUserChange }) {
                       e.target.style.textDecorationColor = 'transparent'
                     }}
                   >
-                    {activity.from}
+                    {activity.fromDisplayName || `@${activity.from}`}
                   </span>
                   <span style={{ color: '#666', margin: '0 0.5rem' }}>gave</span>
                   <span
@@ -538,7 +579,7 @@ function ActivityPage({ selectedYear, onUserChange }) {
                       e.target.style.textDecorationColor = 'transparent'
                     }}
                   >
-                    {activity.to}
+                    {activity.toDisplayName || `@${activity.to}`}
                   </span>
                   <span
                     style={{
@@ -559,9 +600,11 @@ function ActivityPage({ selectedYear, onUserChange }) {
                     marginBottom: '0.25rem',
                     fontStyle: 'italic'
                   }}>
-                    {activity.transactionType === 'emoji' && activity.emojiName
-                      ? `Added a ${getEmojiFromName(activity.emojiName)} emoji reaction`
-                      : activity.reason
+                    {activity.transactionType === 'reactji' && activity.emojiName === 'bangbang'
+                      ? `${activity.fromDisplayName || '@' + activity.from} added a ${getEmojiFromName('bangbang')} (doubling existing ${activity.points} pts)`
+                      : activity.transactionType === 'reactji' && activity.emojiName
+                        ? `Added a ${getEmojiFromName(activity.emojiName)} emoji reaction`
+                        : activity.reason
                     }
                   </div>
                 )}

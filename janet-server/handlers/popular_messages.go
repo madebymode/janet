@@ -12,6 +12,7 @@ type popularMessagesQuery struct {
 	Limit        int
 	Offset       int
 	Year         int
+	Month        int
 	FilterUser   string
 	MinReactions int
 	MediaOnly    bool
@@ -41,6 +42,14 @@ func parsePopularMessagesQuery(r *http.Request) (*popularMessagesQuery, error) {
 		return nil, err
 	}
 
+	month, err := parseOptionalMonth(r)
+	if err != nil {
+		return nil, errInvalidYear
+	}
+	if month > 0 && year == 0 {
+		year = timeNowYear()
+	}
+
 	filterUser, err := sanitizeUsernameFilter(r.URL.Query().Get("user"))
 	if err != nil {
 		return nil, err
@@ -50,6 +59,7 @@ func parsePopularMessagesQuery(r *http.Request) (*popularMessagesQuery, error) {
 		Limit:        parseIntQuery(r, "limit", 15, 1, 15),
 		Offset:       parseIntQuery(r, "offset", 0, 0, 100000),
 		Year:         year,
+		Month:        month,
 		FilterUser:   filterUser,
 		MinReactions: parseIntQuery(r, "min_reactions", 0, 0, 100000),
 		MediaOnly:    parseBoolQuery(r, "has_media"),
@@ -66,8 +76,16 @@ func (h *Handler) buildPopularMessagesResult(query popularMessagesQuery) (*popul
 
 	result := &popularMessagesResult{}
 	entries := make([]popularMessageEntry, 0, len(messages))
+	seenMessageIDs := make(map[string]struct{})
 
 	for _, msg := range messages {
+		if msg.MessageID != "" {
+			if _, dup := seenMessageIDs[msg.MessageID]; dup {
+				continue
+			}
+			seenMessageIDs[msg.MessageID] = struct{}{}
+		}
+
 		entry, skipReason, err := h.buildPopularMessageEntry(msg, query)
 		if err != nil {
 			return nil, err
@@ -122,6 +140,12 @@ func (h *Handler) fetchPopularMessages(query popularMessagesQuery) ([]*database.
 		fetchLimit = 5000
 	}
 
+	if query.Month > 0 {
+		if query.FilterUser != "" {
+			return h.db.GetPopularMessagesByUserYearMonth(fetchLimit, query.Year, query.Month, query.FilterUser, query.FunnyBias)
+		}
+		return h.db.GetPopularMessagesByYearMonth(fetchLimit, query.Year, query.Month, query.FunnyBias)
+	}
 	if query.FilterUser != "" {
 		return h.db.GetPopularMessagesByUser(fetchLimit, query.Year, query.FilterUser, query.FunnyBias)
 	}
@@ -155,7 +179,11 @@ func (h *Handler) buildPopularMessageEntry(msg *database.PopularMessage, query p
 			msgData["channel_id"] = cached.ChannelID
 		}
 		if cached.Text != nil && *cached.Text != "" {
-			msgData["text"] = *cached.Text
+			text := *cached.Text
+			if h.slack != nil {
+				text = h.slack.TranslateMentions(text)
+			}
+			msgData["text"] = text
 			hasText = true
 		}
 		if cached.Permalink != nil && *cached.Permalink != "" {

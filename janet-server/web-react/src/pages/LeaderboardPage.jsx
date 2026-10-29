@@ -1,9 +1,13 @@
 import React from 'react'
 import LeaderboardTable from '../components/LeaderboardTable'
 
-function LeaderboardPage({ selectedYear, onUserChange, leaderboardData, leaderboardLoading, leaderboardError, topGiversData, topGiversLoading, topGiversError }) {
+function LeaderboardPage({ selectedYear, selectedMonth = 0, onUserChange, leaderboardData, leaderboardLoading, leaderboardError, topGiversData, topGiversLoading, topGiversError }) {
 
   const getYearLabel = () => {
+    if (selectedMonth > 0) {
+      const monthName = new Date(selectedYear, selectedMonth - 1).toLocaleString('en-US', { month: 'long' })
+      return `${monthName} ${selectedYear}`
+    }
     if (selectedYear === 0) return 'All Time'
     if (selectedYear === new Date().getFullYear()) return 'This Year'
     return selectedYear.toString()

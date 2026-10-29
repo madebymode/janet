@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	stdlog "log"
 	"net/http"
 	"strconv"
@@ -61,6 +62,18 @@ func parseIntQuery(r *http.Request, key string, fallback, minValue, maxValue int
 		return maxValue
 	}
 	return parsed
+}
+
+func parseOptionalMonth(r *http.Request) (int, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("month"))
+	if raw == "" {
+		return 0, nil
+	}
+	m, err := strconv.Atoi(raw)
+	if err != nil || m < 1 || m > 12 {
+		return 0, errors.New("invalid month")
+	}
+	return m, nil
 }
 
 func parseBoolQuery(r *http.Request, key string) bool {

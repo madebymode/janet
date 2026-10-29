@@ -3,12 +3,15 @@ package slack
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	goslack "github.com/slack-go/slack"
 	"github.com/troyxmccall/janet/database"
 )
+
+var slackMentionRe = regexp.MustCompile(`<@([A-Z0-9]+)>`)
 
 const slackUserCacheTTL = 5 * time.Minute
 
@@ -45,6 +48,39 @@ func (s *Service) EnrichUsersWithSlackInfo(users []*database.UserSummary) []*dat
 	}
 
 	return users
+}
+
+// TranslateMentions replaces <@UXXXXXXX> tokens in text with display names,
+// falling back to @username if a display name isn't set.
+func (s *Service) TranslateMentions(text string) string {
+	if !strings.Contains(text, "<@") {
+		return text
+	}
+	// Best-effort cache refresh; if it fails we still use whatever is cached.
+	_ = s.refreshUserCache()
+
+	return slackMentionRe.ReplaceAllStringFunc(text, func(token string) string {
+		m := slackMentionRe.FindStringSubmatch(token)
+		if len(m) < 2 {
+			return token
+		}
+		userID := m[1]
+
+		s.userCacheMu.RLock()
+		user, ok := s.userCache[userID]
+		s.userCacheMu.RUnlock()
+
+		if !ok {
+			return token
+		}
+		if user.Profile.DisplayName != "" {
+			return "@" + user.Profile.DisplayName
+		}
+		if user.Name != "" {
+			return "@" + user.Name
+		}
+		return token
+	})
 }
 
 func (s *Service) getSlackUserByUsername(username string) (*goslack.User, error) {

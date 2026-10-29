@@ -345,3 +345,82 @@ func (us *UserService) GetTotalUsersByYear(year int) (int, error) {
 func (us *UserService) GetTotalUsersCumulative() (int, error) {
 	return us.GetTotalUsersByYear(0) // 0 means all-time/cumulative
 }
+
+func (us *UserService) GetTotalUsersByYearMonth(year, month int) (int, error) {
+	var total int
+	err := us.db.SQL.QueryRow(
+		`SELECT COUNT(DISTINCT to_user) FROM karma_transactions WHERE year = $1 AND EXTRACT(MONTH FROM timestamp) = $2 AND points > 0`,
+		year, month,
+	).Scan(&total)
+	return total, err
+}
+
+func (us *UserService) GetLeaderboardByYearMonth(year, month, limit int) ([]*UserSummary, error) {
+	rows, err := us.db.SQL.Query(`
+		SELECT
+			to_user AS username,
+			COALESCE(SUM(CASE WHEN points > 0 THEN points ELSE 0 END), 0) AS total_points,
+			0 AS points_given,
+			COALESCE(SUM(CASE WHEN points > 0 THEN points ELSE 0 END), 0) AS points_received,
+			0 AS transactions_given,
+			COUNT(*) AS transactions_received,
+			0 AS emoji_reactions_given,
+			0 AS emoji_reactions_received,
+			ROW_NUMBER() OVER (ORDER BY SUM(CASE WHEN points > 0 THEN points ELSE 0 END) DESC) AS rank
+		FROM karma_transactions
+		WHERE year = $1 AND EXTRACT(MONTH FROM timestamp) = $2 AND points > 0
+		GROUP BY to_user
+		ORDER BY total_points DESC
+		LIMIT $3
+	`, year, month, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*UserSummary
+	for rows.Next() {
+		u := &UserSummary{}
+		if err := rows.Scan(&u.Username, &u.TotalPoints, &u.PointsGiven, &u.PointsReceived,
+			&u.TransactionsGiven, &u.TransactionsReceived,
+			&u.EmojiReactionsGiven, &u.EmojiReactionsReceived, &u.Rank); err != nil {
+			return nil, err
+		}
+		result = append(result, u)
+	}
+	return result, rows.Err()
+}
+
+func (us *UserService) GetTopGiversByYearMonth(limit, year, month int) ([]*UserSummary, error) {
+	rows, err := us.db.SQL.Query(`
+		SELECT
+			from_user AS username,
+			0 AS total_points,
+			COALESCE(SUM(CASE WHEN points > 0 THEN points ELSE 0 END), 0) AS points_given,
+			0 AS points_received,
+			COUNT(*) AS transactions_given,
+			0 AS transactions_received,
+			0 AS emoji_reactions_given,
+			0 AS emoji_reactions_received,
+			ROW_NUMBER() OVER (ORDER BY SUM(CASE WHEN points > 0 THEN points ELSE 0 END) DESC) AS rank
+		FROM karma_transactions
+		WHERE year = $1 AND EXTRACT(MONTH FROM timestamp) = $2 AND points > 0
+		GROUP BY from_user
+		ORDER BY points_given DESC
+		LIMIT $3
+	`, year, month, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*UserSummary
+	for rows.Next() {
+		u := &UserSummary{}
+		if err := rows.Scan(&u.Username, &u.TotalPoints, &u.PointsGiven, &u.PointsReceived,
+			&u.TransactionsGiven, &u.TransactionsReceived,
+			&u.EmojiReactionsGiven, &u.EmojiReactionsReceived, &u.Rank); err != nil {
+			return nil, err
+		}
+		result = append(result, u)
+	}
+	return result, rows.Err()
+}

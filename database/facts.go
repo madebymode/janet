@@ -133,7 +133,7 @@ func (s *FactsService) GetFunFacts(year int) (*FunFacts, error) {
 			WHERE (`+yearCond+`) AND points > 0 AND message_id IS NULL
 		) events
 		ORDER BY total_points DESC LIMIT 1
-	`, year, year)
+	`, year)
 	if err := eventRow.Scan(&fromUser, &toUser, &points, &reason); err == nil {
 		ev := &BiggestKarmaEvent{FromUser: fromUser, ToUser: toUser, Points: points}
 		if reason.Valid && reason.String != "" {
@@ -258,7 +258,7 @@ func (s *FactsService) GetFunFactsByYearMonth(year, month int) (*FunFacts, error
 			WHERE (`+cond+`) AND points > 0 AND message_id IS NULL
 		) events
 		ORDER BY total_points DESC LIMIT 1
-	`, year, month, year, month)
+	`, year, month)
 	if err := eventRow.Scan(&fromUser, &toUser, &points, &reason); err == nil {
 		ev := &BiggestKarmaEvent{FromUser: fromUser, ToUser: toUser, Points: points}
 		if reason.Valid && reason.String != "" {

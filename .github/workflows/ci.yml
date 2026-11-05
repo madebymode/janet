@@ -56,10 +56,10 @@ jobs:
 
       - name: Build all binaries
         run: |
-          go build -v ./cmd/janet-bot
-          go build -v ./cmd/janet-server
-          go build -v ./cmd/janet-backfill
-          go build -v ./cmd/janet-maintenance
+          go build -v -o janet-bot ./cmd/janet-bot
+          go build -v -o janet-server-bin ./janet-server
+          go build -v -o janet-backfill ./cmd/janet-backfill
+          go build -v -o janet-maintenance ./cmd/janet-maintenance
 
   lint-frontend:
     runs-on: ubuntu-latest

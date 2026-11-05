@@ -1,0 +1,150 @@
+name: Nightly Go Version Update
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # 3:00 AM UTC daily
+  workflow_dispatch:
+
+jobs:
+  check-go-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check for Go version updates
+        id: go-update
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+
+          function compareVersions(a, b) {
+            const length = Math.max(a.length, b.length);
+            for (let i = 0; i < length; i += 1) {
+              const left = a[i] ?? 0;
+              const right = b[i] ?? 0;
+              if (left !== right) {
+                return left - right;
+              }
+            }
+            return 0;
+          }
+
+          async function fetchJson(url) {
+            const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+            if (!response.ok) {
+              throw new Error(`Request failed for ${url}: ${response.status}`);
+            }
+            return response.json();
+          }
+
+          async function main() {
+            // Fetch latest Go versions from the official API
+            const releases = await fetchJson('https://go.dev/dl/?mode=json');
+
+            // Find the latest stable release (first one in the list is typically latest stable)
+            const stableRelease = releases.find(r => r.stable);
+            if (!stableRelease) {
+              throw new Error('No stable Go release found');
+            }
+
+            // Extract version number (e.g., "go1.22.0" -> "1.22")
+            const versionMatch = stableRelease.version.match(/^go(\d+)\.(\d+)/);
+            if (!versionMatch) {
+              throw new Error(`Could not parse Go version: ${stableRelease.version}`);
+            }
+            const latestVersion = `${versionMatch[1]}.${versionMatch[2]}`;
+
+            console.log(`Latest stable Go version: ${latestVersion}`);
+
+            // Read current go.mod
+            const goMod = fs.readFileSync('go.mod', 'utf8');
+            const currentMatch = goMod.match(/^go\s+(\d+\.\d+)/m);
+            if (!currentMatch) {
+              throw new Error('Could not find Go version in go.mod');
+            }
+            const currentVersion = currentMatch[1];
+
+            console.log(`Current Go version in go.mod: ${currentVersion}`);
+
+            // Compare versions
+            const latestParts = latestVersion.split('.').map(Number);
+            const currentParts = currentVersion.split('.').map(Number);
+
+            if (compareVersions(latestParts, currentParts) > 0) {
+              console.log(`Updating go.mod from ${currentVersion} to ${latestVersion}`);
+
+              // Update go.mod
+              const updatedGoMod = goMod.replace(
+                /^go\s+\d+\.\d+/m,
+                `go ${latestVersion}`
+              );
+              fs.writeFileSync('go.mod', updatedGoMod);
+
+              // Output for GitHub Actions
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `updated=true\n`);
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `old_version=${currentVersion}\n`);
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `new_version=${latestVersion}\n`);
+            } else {
+              console.log('Go version is already up to date');
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `updated=false\n`);
+            }
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          EOF
+
+      - name: Run go mod tidy
+        if: steps.go-update.outputs.updated == 'true'
+        run: |
+          # Install the new Go version
+          GO_VERSION="${{ steps.go-update.outputs.new_version }}"
+          curl -LO "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
+          sudo rm -rf /usr/local/go
+          sudo tar -C /usr/local -xzf "go${GO_VERSION}.linux-amd64.tar.gz"
+          export PATH="/usr/local/go/bin:$PATH"
+          go version
+          go mod tidy
+
+      - name: Run tests
+        if: steps.go-update.outputs.updated == 'true'
+        run: |
+          export PATH="/usr/local/go/bin:$PATH"
+          go test ./...
+
+      - name: Create Pull Request
+        if: steps.go-update.outputs.updated == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OLD_VERSION="${{ steps.go-update.outputs.old_version }}"
+          NEW_VERSION="${{ steps.go-update.outputs.new_version }}"
+          BRANCH="update-go-${NEW_VERSION}-$(date +%Y%m%d)"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add go.mod go.sum
+          git commit -m "chore: update Go version from ${OLD_VERSION} to ${NEW_VERSION}"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --title "chore: update Go version from ${OLD_VERSION} to ${NEW_VERSION}" \
+            --body "This PR updates the Go version in go.mod.
+
+## Changes
+- Updated Go version from \`${OLD_VERSION}\` to \`${NEW_VERSION}\`
+- Ran \`go mod tidy\` to update dependencies
+- All tests passed
+
+## Release Notes
+See [Go ${NEW_VERSION} release notes](https://go.dev/doc/go${NEW_VERSION})
+
+---
+Generated automatically by the nightly-update workflow." \
+            --base master

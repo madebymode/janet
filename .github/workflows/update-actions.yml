@@ -1,0 +1,64 @@
+name: Update GitHub Actions
+
+on:
+  schedule:
+    - cron: '0 4 * * 1' # 4:00 AM UTC every Monday
+  workflow_dispatch:
+
+jobs:
+  update-actions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '20'
+
+      - name: Install pin-github-action
+        run: npm install -g pin-github-action
+
+      - name: Pin all workflow actions to latest SHA
+        run: |
+          for workflow in .github/workflows/*.yml; do
+            echo "Pinning actions in $workflow"
+            pin-github-action "$workflow" || true
+          done
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Pull Request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="update-actions-$(date +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add .github/workflows/
+          git commit -m "chore: update GitHub Actions to latest SHA checksums"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --title "chore: update GitHub Actions to latest SHA checksums" \
+            --body "This PR updates all GitHub Actions to their latest versions with SHA checksums for improved security.
+
+## Changes
+- Pinned all actions to their full commit SHA
+- Updated version comments to reflect latest releases
+
+---
+Generated automatically by the update-actions workflow." \
+            --base master

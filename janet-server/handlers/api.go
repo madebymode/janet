@@ -26,11 +26,3 @@ func filterActiveUsers(users []*database.UserSummary) []*database.UserSummary {
 	}
 	return filtered
 }
-
-// min returns the smaller of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

@@ -486,38 +486,6 @@ func (b *Bot) handleBangBangPoints(ev *slack.ReactionAddedEvent) {
 	}
 }
 
-// calculateKarmaFromMessage parses a message and calculates total karma points being given in the message
-func (b *Bot) calculateKarmaFromMessage(messageText, messageAuthor string) int {
-	totalPoints := 0
-
-	// Handle motivates like the main bot does
-	if match := regexps.Motivate.FindStringSubmatch(messageText); len(match) > 0 {
-		messageText = match[1] + "++ for doing good work"
-	}
-
-	// Check for give karma patterns - sum ALL karma being given
-	if matches := regexps.GivePoints.FindAllStringSubmatch(messageText, -1); len(matches) > 0 {
-		for _, match := range matches {
-			points, toUser := b.parseKarmaMatch(match, true)
-			if toUser != "" { // Any valid karma given
-				totalPoints += points
-			}
-		}
-	}
-
-	// Check for take karma patterns - subtract karma being taken
-	if matches := regexps.TakePoints.FindAllStringSubmatch(messageText, -1); len(matches) > 0 {
-		for _, match := range matches {
-			points, toUser := b.parseKarmaMatch(match, false)
-			if toUser != "" { // Any valid karma taken
-				totalPoints += points // points is already negative from parseKarmaMatch
-			}
-		}
-	}
-
-	return totalPoints
-}
-
 // parseKarmaMatch parses a regex match and extracts karma information for bangbang calculation
 func (b *Bot) parseKarmaMatch(match []string, isPositive bool) (int, string) {
 	var targetUser, karmaChars string
@@ -563,28 +531,6 @@ func (b *Bot) parseKarmaMatch(match []string, isPositive bool) (int, string) {
 	}
 
 	return points, toUser
-}
-
-// processKarmaTransaction creates and processes a karma transaction
-func (b *Bot) processKarmaTransaction(fromUser, toUser string, points int, reason, transactionType string, channelID, messageID *string) {
-	// add the actor's username to the reason
-	reason = fmt.Sprintf("%s %s", fromUser, reason)
-
-	// create and insert transaction
-	tx := &database.Transaction{
-		FromUser:        fromUser,
-		ToUser:          toUser,
-		Points:          points,
-		Reason:          reason,
-		TransactionType: transactionType,
-		ChannelID:       channelID,
-		MessageID:       messageID,
-		Timestamp:       time.Now(),
-	}
-	err := b.Config.DB.InsertTransaction(tx)
-	if b.handleError(err, nil) {
-		return
-	}
 }
 
 func (b *Bot) markPopularMessageStale(messageID string, channelID *string) {

@@ -569,17 +569,6 @@ func (bs *BackfillService) processBangBangReaction(reaction slack.ItemReaction, 
 	}
 }
 
-// calculateKarmaFromMessage is deprecated - bangbang now splits karma among intended users
-// This function is kept for legacy compatibility but should not be used
-func (bs *BackfillService) calculateKarmaFromMessage(msg slack.Message, messageAuthor string) int {
-	bs.logger.Info("calculateKarmaFromMessage called - this function is deprecated, bangbang should split karma among intended users")
-	return 0 // Return 0 to indicate no karma should be processed this way
-}
-
-func (bs *BackfillService) parseKarmaFromText(text, fromUser string, maxPoints int) []*database.BackfillRecord {
-	// Legacy function for compatibility - uses old method
-	return bs.parseKarmaFromTextWithFallback(text, fromUser, maxPoints, nil)
-}
 
 func (bs *BackfillService) parseKarmaFromTextWithFallback(text, fromUser string, maxPoints int, getUsernameFunc func(string) string) []*database.BackfillRecord {
 	var transactions []*database.BackfillRecord
@@ -636,10 +625,6 @@ func (bs *BackfillService) parseKarmaFromTextWithFallback(text, fromUser string,
 	return transactions
 }
 
-func (bs *BackfillService) parseKarmaMatch(match []string, isPositive bool, maxPoints int) (points int, toUser, reason string) {
-	// Legacy function for compatibility - uses old method
-	return bs.parseKarmaMatchWithFallback(match, isPositive, maxPoints, nil)
-}
 
 func (bs *BackfillService) parseKarmaMatchWithFallback(match []string, isPositive bool, maxPoints int, getUsernameFunc func(string) string) (points int, toUser, reason string) {
 	// Parse the match based on the regex groups
@@ -869,13 +854,6 @@ func (bs *BackfillService) getConversationHistoryWithRetry(params *slack.GetConv
 		return err
 	})
 	return history, err
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func loadConfigFromEnv() *BackfillConfig {
